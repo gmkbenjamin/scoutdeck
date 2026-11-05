@@ -2,8 +2,8 @@
 /dist/
 /bin/
 /build/
-/scout
-/scoutctl
+scout
+scoutctl
 *.exe
 *.test
 *.out
@@ -60,3 +60,6 @@ secrets*.json
 *.swp
 *.swo
 *~
+
+# Vendored bitmap font required by go:embed (not a robot capture).
+!/go-scout-win/vendor/github.com/hajimehoshi/ebiten/v2/ebitenutil/text.png

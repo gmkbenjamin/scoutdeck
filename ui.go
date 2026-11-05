@@ -3,105 +3,78 @@ package main
 import (
 	"context"
 	"log"
-	"math"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/shell-company/scout/internal/control"
+	"github.com/shell-company/scout/internal/manual"
 )
 
-func (g *Game) pressed(key ebiten.Key) bool {
-	down := ebiten.IsKeyPressed(key)
-	was := g.keys[key]
-	g.keys[key] = down
-	return down && !was
+func readInput() manual.Frame {
+	held := ebiten.IsKeyPressed
+	f := manual.Frame{Focused: ebiten.IsFocused(), Keyboard: manual.Keyboard{
+		Forward: held(ebiten.KeyW) || held(ebiten.KeyArrowUp), Back: held(ebiten.KeyS) || held(ebiten.KeyArrowDown),
+		Left: held(ebiten.KeyA) || held(ebiten.KeyArrowLeft), Right: held(ebiten.KeyD) || held(ebiten.KeyArrowRight),
+		StrafeLeft: held(ebiten.KeyQ), StrafeRight: held(ebiten.KeyE),
+	}}
+	for _, b := range []struct {
+		key    ebiten.Key
+		button manual.Buttons
+	}{
+		{ebiten.KeyX, manual.Stop}, {ebiten.KeyEscape, manual.Exit}, {ebiten.KeyP, manual.Faster}, {ebiten.KeyO, manual.Slower},
+		{ebiten.KeyH, manual.Dock}, {ebiten.KeySpace, manual.Screenshot}, {ebiten.Key9, manual.Dim}, {ebiten.Key0, manual.Bright},
+	} {
+		if held(b.key) {
+			f.Keyboard.Buttons |= b.button
+		}
+	}
+	for _, id := range ebiten.AppendGamepadIDs(nil) {
+		p := manual.Pad{ID: int(id), Name: ebiten.GamepadName(id), Standard: ebiten.IsStandardGamepadLayoutAvailable(id)}
+		if p.Standard {
+			p.LeftX = ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickHorizontal)
+			p.LeftY = ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisLeftStickVertical)
+			p.RightX = ebiten.StandardGamepadAxisValue(id, ebiten.StandardGamepadAxisRightStickHorizontal)
+			for _, b := range []struct {
+				button ebiten.StandardGamepadButton
+				action manual.Buttons
+			}{
+				{ebiten.StandardGamepadButtonRightBottom, manual.Screenshot}, // Xbox A
+				{ebiten.StandardGamepadButtonRightRight, manual.Stop},        // Xbox B
+				{ebiten.StandardGamepadButtonRightLeft, manual.AutoLight},    // Xbox X
+				{ebiten.StandardGamepadButtonRightTop, manual.Dock},          // Xbox Y
+				{ebiten.StandardGamepadButtonFrontTopLeft, manual.Slower},
+				{ebiten.StandardGamepadButtonFrontTopRight, manual.Faster},
+				{ebiten.StandardGamepadButtonLeftTop, manual.Bright},
+				{ebiten.StandardGamepadButtonLeftBottom, manual.Dim},
+				{ebiten.StandardGamepadButtonCenterRight, manual.Exit}, // Xbox Menu/Start
+			} {
+				if ebiten.IsStandardGamepadButtonPressed(id, b.button) {
+					p.Buttons |= b.action
+				}
+			}
+			if p.Buttons&(manual.Faster|manual.Slower) == manual.Faster|manual.Slower {
+				p.Buttons |= manual.Stop
+			}
+		}
+		f.Pads = append(f.Pads, p)
+	}
+	return f
 }
 
 func (g *Game) Update() error {
 	if g.app.ctx.Err() != nil {
 		return ebiten.Termination
 	}
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+	result := g.applyInput(readInput())
+	g.inputStatus = result
+	if result.Quit {
 		g.app.cancel()
 		return ebiten.Termination
 	}
-	if !ebiten.IsFocused() {
-		g.app.control.Manual(control.Motion{}, g.wasFocused, time.Now())
-		g.wasFocused = false
-		return nil
-	}
-	g.wasFocused = true
-	m := control.Motion{}
-	stop := ebiten.IsKeyPressed(ebiten.KeyX)
-	faster, slower := g.pressed(ebiten.KeyP), g.pressed(ebiten.KeyO)
-	if *flagControlScheme == "joystick" {
-		ids := ebiten.AppendGamepadIDs(nil)
-		if len(ids) == 0 || !ebiten.IsStandardGamepadLayoutAvailable(ids[0]) {
-			if g.hadJoystick {
-				log.Print("Joystick disconnected; stopping")
-				g.cancelDock()
-			}
-			g.app.control.Manual(m, g.hadJoystick, time.Now())
-			g.hadJoystick = false
-			return nil
-		}
-		g.hadJoystick = true
-		id := ids[0]
-		if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonCenterRight) {
-			g.app.cancel()
-			return ebiten.Termination
-		}
-		var bumpers uint8
-		if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonFrontTopLeft) {
-			bumpers |= 1
-		}
-		if ebiten.IsStandardGamepadButtonPressed(id, ebiten.StandardGamepadButtonFrontTopRight) {
-			bumpers |= 2
-		}
-		stop = stop || bumpers == 3
-		if !stop {
-			slower = slower || bumpers == 1 && g.lastBumpers != 1
-			faster = faster || bumpers == 2 && g.lastBumpers != 2
-		}
-		g.lastBumpers = bumpers
-		g.adjustSpeed(faster, slower)
-		axis := func(ax ebiten.StandardGamepadAxis) float64 {
-			v := ebiten.StandardGamepadAxisValue(id, ax)
-			if math.Abs(v) < .015 {
-				return 0
-			}
-			return v * .5
-		}
-		m = control.JoystickMotion(axis(ebiten.StandardGamepadAxisLeftStickHorizontal), -axis(ebiten.StandardGamepadAxisLeftStickVertical), axis(ebiten.StandardGamepadAxisRightStickHorizontal), g.speed, stop)
-	} else {
-		g.adjustSpeed(faster, slower)
-		if ebiten.IsKeyPressed(ebiten.KeyW) {
-			m.Y = g.speed
-		} else if ebiten.IsKeyPressed(ebiten.KeyS) {
-			m.Y = -g.speed
-		}
-		if ebiten.IsKeyPressed(ebiten.KeyQ) {
-			m.X = -.2
-		} else if ebiten.IsKeyPressed(ebiten.KeyE) {
-			m.X = .2
-		}
-		if ebiten.IsKeyPressed(ebiten.KeyA) {
-			m.Z = 1.8
-		} else if ebiten.IsKeyPressed(ebiten.KeyD) {
-			m.Z = -1.8
-		}
-	}
-	if stop && !g.lastStop {
-		g.cancelDock()
-	}
-	g.lastStop = stop
-	g.app.control.Manual(m, stop, time.Now())
-	for key, command := range map[ebiten.Key]string{ebiten.KeyH: "home", ebiten.Key9: "dim", ebiten.Key0: "bright", ebiten.KeySpace: "screenshot"} {
-		if !g.pressed(key) {
+	for _, command := range result.Actions {
+		if g.inputTest {
+			log.Printf("Input test action: %s (not sent to robot)", command)
 			continue
-		}
-		if command == "home" {
-			g.app.control.Stop()
 		}
 		err := g.app.actions.Submit(func(ctx context.Context) error {
 			switch command {
@@ -111,6 +84,8 @@ func (g *Game) Update() error {
 				return g.app.action(ctx, "light", 0)
 			case "bright":
 				return g.app.action(ctx, "light", 1)
+			case "auto-light":
+				return g.app.action(ctx, "light", 4)
 			default:
 				return g.app.action(ctx, "home", 0)
 			}
@@ -135,13 +110,24 @@ func (g *Game) cancelDock() {
 	}()
 }
 
-func (g *Game) adjustSpeed(faster, slower bool) {
-	if faster != slower {
-		if faster {
-			g.speed += .1
-		} else {
-			g.speed -= .1
-		}
+// Losing focus revokes human input once; an unfocused window does not hold an
+// artificial stop button forever and prevent explicitly requested agent control.
+func (g *Game) applyInput(frame manual.Frame) manual.Result {
+	result := g.input.Update(frame)
+	wasUnfocused := g.unfocused
+	g.unfocused = !frame.Focused
+	if result.Stop && (!g.lastStop || frame.Focused && wasUnfocused) {
+		g.cancelDock()
 	}
-	g.speed = math.Max(.1, math.Min(1, g.speed))
+	g.lastStop = result.Stop
+	stop := result.Stop
+	if !frame.Focused && wasUnfocused {
+		stop = false
+	}
+	motion := result.Motion
+	if !frame.Focused {
+		motion = control.Motion{}
+	}
+	g.app.control.Manual(motion, stop, time.Now())
+	return result
 }

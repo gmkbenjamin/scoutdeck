@@ -22,9 +22,11 @@ import (
 	"github.com/shell-company/scout/internal/agent"
 	"github.com/shell-company/scout/internal/control"
 	"github.com/shell-company/scout/internal/docking"
+	"github.com/shell-company/scout/internal/manual"
 )
 
 var flagAPI = flag.String("api", "", "optional loopback HTTP address, e.g. 127.0.0.1:8080 (Bearer token: SCOUT_API_TOKEN)")
+var flagInputTest = flag.Bool("input-test", false, "test keyboard/gamepad input in a window without connecting to a robot")
 var flagHeadless = flag.Bool("headless", false, "run without a window; requires -api")
 var flagSSH = flag.String("ssh", "", "optional SSH audio destination, e.g. root@robot.example (normal SSH authentication)")
 
@@ -41,8 +43,13 @@ type application struct {
 }
 
 func runApplication() (retErr error) {
-	if *flagControlScheme != "keyboard" && *flagControlScheme != "joystick" {
-		return fmt.Errorf("-c must be keyboard or joystick")
+	switch *flagControlScheme {
+	case "auto", "keyboard", "gamepad", "joystick":
+	default:
+		return fmt.Errorf("-c must be auto, keyboard, gamepad or joystick")
+	}
+	if *flagInputTest && *flagHeadless {
+		return fmt.Errorf("-input-test needs a window; omit -headless")
 	}
 	if *flagHeadless && *flagAPI == "" {
 		return fmt.Errorf("-headless requires -api")
@@ -108,8 +115,8 @@ func runApplication() (retErr error) {
 			_ = n.Close()
 		}
 	}()
-	if os.Getenv("EBITENGINE_GRAPHICS_LIBRARY") == "" {
-		_ = os.Setenv("EBITENGINE_GRAPHICS_LIBRARY", "opengl")
+	if *flagInputTest {
+		return runInputTest(a)
 	}
 	if err := forceROSHostnameToMasterIP(*flagROSHostAddress, *flagVerbose); err != nil {
 		return err
@@ -234,10 +241,7 @@ func runApplication() (retErr error) {
 		<-ctx.Done()
 		return nil
 	}
-	ebiten.SetWindowSize(WindowX, WindowY)
-	ebiten.SetWindowTitle("Scout")
-	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
-	return ebiten.RunGame(&Game{app: a, speed: .2, keys: make(map[ebiten.Key]bool), wasFocused: true})
+	return runWindow(a, false)
 }
 
 func (a *application) publish(m control.Motion) error {
@@ -302,4 +306,37 @@ func (a *application) status() any {
 		}
 	}
 	return map[string]any{"control": ctrl, "docking": dock, "battery": battery, "camera": map[string]any{"available": len(f.Data) > 0 && time.Since(f.At) < 3*time.Second, "observed_at": f.At}, "capabilities": map[string]any{"drive": true, "screenshot": true, "video": "mjpeg", "microphone": "aac", "ssh_audio": *flagSSH != "", "light": true, "dock": *flagSSH != ""}, "limits": map[string]any{"linear_x": .2, "linear_y": .3, "angular_z": 1.8, "max_ttl_ms": 500}}
+}
+
+func runWindow(a *application, inputTest bool) error {
+	ebiten.SetWindowSize(WindowX, WindowY)
+	title := "Scout"
+	if inputTest {
+		title = "Scout - Input Test (no robot)"
+	}
+	ebiten.SetWindowTitle(title)
+	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
+	// Keep Update running to immediately revoke manual input when focus is lost.
+	ebiten.SetRunnableOnUnfocused(true)
+	return ebiten.RunGame(&Game{app: a, input: manual.Mapper{KeyboardOnly: *flagControlScheme == "keyboard"}, inputTest: inputTest})
+}
+
+func runInputTest(a *application) error {
+	log.Print("Input test: no ROS connection; no commands will be sent to a robot")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(control.Interval)
+		defer t.Stop()
+		var last control.Motion
+		_ = a.control.Run(a.ctx, t.C, func(m control.Motion) error {
+			if m != last {
+				log.Printf("Input test motion: x=%.3f y=%.3f turn=%.3f", m.X, m.Y, m.Z)
+				last = m
+			}
+			return nil
+		})
+	}()
+	defer func() { a.cancel(); <-done }()
+	return runWindow(a, true)
 }

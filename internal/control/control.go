@@ -155,12 +155,3 @@ func (c *Controller) Run(ctx context.Context, ticks <-chan time.Time, publish fu
 		}
 	}
 }
-
-// JoystickMotion deliberately bypasses speed clamping when stop is held.
-func JoystickMotion(leftX, leftY, rightX, speed float64, stop bool) Motion {
-	if stop {
-		return Motion{}
-	}
-	speed = math.Max(.1, math.Min(1, speed))
-	return Motion{X: rightX * .2, Y: leftY * speed, Z: leftX * -2.9}
-}

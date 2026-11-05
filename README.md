@@ -27,16 +27,84 @@ The API requires a Bearer token and binds only to loopback. See
 [AGENT_API.md](AGENT_API.md) for startup, `scoutctl` commands, media formats,
 movement limits, docking behavior and tests.
 
-## Manual controls
+## Windows and macOS
 
-Keyboard: W/S forward/back, A/D turn, Q/E strafe, O/P adjust speed, X stop,
-H dock, 9/0 dim/brighten, Space screenshot, Esc exit.
+Both platforms use the maintained root application. Keyboard and supported Xbox
+controllers work together by default; no restart or control-mode switch is needed.
+Keyboard movement takes priority while keys are held. Use `-c keyboard` to ignore
+controllers. `-c gamepad` and the older `-c joystick` spelling also retain keyboard
+fallback.
 
-Use `-c joystick` for a controller with a standard gamepad mapping. The left stick
-moves and turns; the right stick strafes. Bumpers adjust speed, both bumpers stop
-all axes, and Start exits. Release movement controls after a stop before resuming.
-Action and speed buttons trigger once per press. The HUD shows command and battery
-status.
+### Windows (PowerShell)
+
+Build from the repository root with Go installed, or use the packaged `scout.exe`:
+
+```powershell
+go build -trimpath -o dist/scout.exe .
+$ScoutHost = "robot.example" # Replace with your robot hostname or IP.
+.\dist\scout.exe -r "${ScoutHost}:11311" -ssh "root@$ScoutHost"
+.\dist\scout.exe -input-test
+```
+
+Connect the Xbox controller in Windows before using it. Allow Scout through the
+Windows firewall on your trusted private network: ROS needs incoming callback
+connections as well as access to the robot's master. `-ssh` requires Windows
+OpenSSH Client and working normal SSH authentication. Omit it for driving/video
+only. `ffmpeg` is optional for JPEG video and required for H.264/WAV recording.
+
+### macOS
+
+Pair a compatible Xbox controller in **System Settings → Bluetooth**. See
+[Apple's controller connection guide](https://support.apple.com/en-ie/111099) for
+model compatibility and connection options. Allow Scout's incoming ROS connections
+in the firewall when prompted.
+
+The macOS package includes `Scout.app` and `scoutctl`. Start the app with your
+robot address from Terminal:
+
+```sh
+export SCOUT_HOST=robot.example
+./Scout.app/Contents/MacOS/scout -r "$SCOUT_HOST:11311" -ssh "root@$SCOUT_HOST"
+./Scout.app/Contents/MacOS/scout -input-test
+```
+
+Build packages with Python 3 and Go using `scripts/package.py --os darwin --arch
+arm64` (Apple silicon), `--arch amd64` (Intel Mac), or `--os windows --arch amd64`
+(Windows x64). Run macOS builds on a Mac. Archives are written under `dist/`.
+Mac bundles are ad-hoc signed for a stable application identity, not notarized.
+
+### Controls
+
+| Action | Keyboard | Xbox controller |
+|---|---|---|
+| Forward/back and turn | W/S/A/D or arrow keys | Left stick |
+| Strafe | Q/E | Right stick horizontal |
+| Stop all movement / cancel docking | X | B or LB + RB |
+| Increase/decrease speed | P/O | RB/LB |
+| Dock | H | Y |
+| Screenshot | Space | A |
+| Brighten/dim | 0/9 | D-pad up/down |
+| Automatic light | Agent API | X |
+| Exit and stop | Escape | Menu/Start |
+
+Manual forward speed is limited to 0.1–0.3 m/s; the initial setting is 0.2 m/s.
+Sticks have a 15% dead zone to suppress drift. Center sticks and release buttons
+when connecting. Losing focus or disconnecting the selected controller stops
+manual motion; release all movement controls before resuming. Agent drive leases
+remain governed by the separate [agent control contract](AGENT_API.md).
+
+The HUD shows the selected controller, speed, control owner and stop state. The
+app skips controllers without a standard layout and keeps the same selected
+controller when another one connects. Controller support uses Ebitengine's
+[standard gamepad mapping](https://ebitengine.org/en/documents/2.2.html).
+
+Run `-input-test` to test input without a ROS connection. Movement appears in the
+window and console; docking, screenshots and light buttons are logged instead of
+sent to the robot. This is useful for checking pairing and mappings before driving.
+
+The restored [go-scout-win](go-scout-win/README.md) directory retains the older
+Windows source and vendored patches for reference. It is separate from the
+maintained cross-platform app and predates its control safety fixes.
 
 ## Local data
 

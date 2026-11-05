@@ -58,7 +58,7 @@ A drive command lasts 100–500 ms (default 300 ms). Renew approximately every
 command was accepted by this controller, not that the robot physically moved.
 The status velocity is the most recent transport submission, not odometry.
 
-Manual input takes priority and cancels the agent lease. Both joystick bumpers
+Manual input takes priority and cancels the agent lease. Xbox **B**, both bumpers together,
 or keyboard **X** stop every axis. After a manual stop, release movement controls
 before moving again. Stale manual input also stops after 350 ms. Escape,
 controller Start, window close, Ctrl-C, SIGTERM and API shutdown all use the

@@ -27,6 +27,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/shell-company/scout/internal/control"
+	"github.com/shell-company/scout/internal/manual"
 )
 
 var (
@@ -42,7 +43,7 @@ var (
 	WindowY            int
 	flagROSHostAddress = flag.String("r", ROSHostAddress, "ROS master endpoint (IP:PORT)")
 	flaglocalhost      = flag.String("l", localhostAddress, "localhost address")
-	flagControlScheme  = flag.String("c", "keyboard", "control scheme, keyboard or joystick")
+	flagControlScheme  = flag.String("c", "auto", "controls: auto (keyboard + gamepad), keyboard, or gamepad (joystick alias)")
 	flagVerbose        = flag.Bool("v", false, "verbose")
 	n                  *goroslib.Node
 	err                error
@@ -95,12 +96,11 @@ func enqueueCameraFrame(frame []byte) {
 
 type Game struct {
 	app         *application
-	speed       float64
-	keys        map[ebiten.Key]bool
-	lastBumpers uint8
-	hadJoystick bool
-	wasFocused  bool
+	input       manual.Mapper
+	inputStatus manual.Result
+	inputTest   bool
 	lastStop    bool
+	unfocused   bool
 }
 
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -121,7 +121,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 	// print some HUD data
 	state := g.app.control.Snapshot()
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("%s x:%.2f y:%.2f turn:%.2f speed:%.1f", state.Owner, state.Motion.X, state.Motion.Y, state.Motion.Z, g.speed))
+	ebitenutil.DebugPrint(screen, fmt.Sprintf("%s x:%.2f y:%.2f turn:%.2f speed:%.1f", state.Owner, state.Motion.X, state.Motion.Y, state.Motion.Z, g.inputStatus.Speed))
 	batteryMu.RLock()
 	batteryPercent, batteryChargeState := batteryPercent, batteryChargeState
 	batteryMu.RUnlock()
@@ -147,8 +147,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		}
 	}
 	ebitenutil.DebugPrintAt(screen, batteryStatus, 10, 20)
-	// print bottom HUD data
-	ebitenutil.DebugPrintAt(screen, "🥷 Scout 🤖", 10, WindowY-20)
+	ebitenutil.DebugPrintAt(screen, g.inputStatus.Source, 10, 40)
+	if g.inputStatus.Stop {
+		ebitenutil.DebugPrintAt(screen, "STOPPED - release keys/sticks/buttons to resume", 10, 60)
+	}
+	if g.inputTest {
+		ebitenutil.DebugPrintAt(screen, "INPUT TEST - no robot connection or commands", 10, 90)
+	}
+	ebitenutil.DebugPrintAt(screen, "WASD/arrows move | Q/E strafe | X / Xbox B stop | H / Y dock | Space / A screenshot", 10, WindowY-40)
+	ebitenutil.DebugPrintAt(screen, "O/P or LB/RB speed | 9/0 or D-pad down/up light | Xbox X auto light | Esc / Menu exit", 10, WindowY-20)
 }
 
 func printUsage() {
@@ -157,8 +164,8 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "Options:\n")
 	flag.PrintDefaults()
 	fmt.Fprintf(os.Stderr, `
-Keyboard controls (default):
-  W/S/A/D     forward/back/turn
+Keyboard controls (always available):
+  W/S/A/D or arrows  forward/back/turn
   Q/E         strafe left/right
   O/P         decrease/increase speed
   X           stop all movement
@@ -167,7 +174,13 @@ Keyboard controls (default):
   Space       save screenshot
   Esc         exit
 
-Joystick: left stick move/turn, right stick strafe, bumpers adjust speed, both stop, start exits.
+Xbox controller (auto-detected by default):
+  Left stick move/turn; right stick strafe; LB/RB speed (0.1-0.3 m/s)
+  B or both bumpers stop; Y dock; A screenshot; X auto light
+  D-pad up/down brightness; Menu/Start exits
+  Center sticks and release buttons after connecting or stopping.
+
+Use -input-test to check controls without connecting to a robot.
 `)
 }
 

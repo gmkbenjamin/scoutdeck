@@ -10,17 +10,6 @@ import (
 	"time"
 )
 
-func TestBumpersStopEveryAxis(t *testing.T) {
-	for _, speed := range []float64{0, .1, .2, 1, 2} {
-		if got := JoystickMotion(.5, .5, .5, speed, true); got != (Motion{}) {
-			t.Fatalf("stop at speed %v: %+v", speed, got)
-		}
-	}
-	if got := JoystickMotion(.5, .5, .5, .2, false); got.Y != .1 || got.Z != -1.45 {
-		t.Fatal(got)
-	}
-}
-
 func TestLeaseManualPriorityAndRelease(t *testing.T) {
 	c := &Controller{}
 	now := time.Now()
