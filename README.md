@@ -102,10 +102,6 @@ Run `-input-test` to test input without a ROS connection. Movement appears in th
 window and console; docking, screenshots and light buttons are logged instead of
 sent to the robot. This is useful for checking pairing and mappings before driving.
 
-The restored [go-scout-win](go-scout-win/README.md) directory retains the older
-Windows source and vendored patches for reference. It is separate from the
-maintained cross-platform app and predates its control safety fixes.
-
 ## Local data
 
 Keep tokens and machine-specific configuration in ignored `.env` or `*.local.*`
