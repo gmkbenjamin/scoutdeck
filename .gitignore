@@ -38,6 +38,7 @@ secrets*.json
 /screenshots/
 /recordings/
 /logs/
+/SCOUT_SECURITY_AUDIT_2026-11-05.md
 *.log
 *.jpg
 *.jpeg
@@ -60,3 +61,5 @@ secrets*.json
 *.swp
 *.swo
 *~
+!/assets/*.png
+!/internal/web/static/*.png

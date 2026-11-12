@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,13 +31,20 @@ func NewSSHAudio(destination string) (*SSHAudio, error) {
 
 func (a *SSHAudio) command(ctx context.Context, command string) *exec.Cmd {
 	// Use the user's ordinary SSH agent/configuration; never open credential files.
-	cmd := exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=yes", a.destination, command)
+	args := []string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new"}
+	if runtime.GOOS != "windows" {
+		// The robot takes 2-3 s per SSH handshake; reuse one connection so the
+		// once-per-second charging probe stays well inside its deadline.
+		// The socket lives in the user's private ~/.ssh, not a shared temp dir.
+		args = append(args, "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/scout-%C", "-o", "ControlPersist=60")
+	}
+	cmd := exec.CommandContext(ctx, "ssh", append(args, a.destination, command)...)
 	cmd.WaitDelay = time.Second
 	return cmd
 }
 
 func (a *SSHAudio) Power(parent context.Context) (docking.Power, error) {
-	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 6*time.Second)
 	defer cancel()
 	data, err := a.command(ctx, "cat /sys/class/power_supply/rk-bat/status").Output()
 	if err != nil {
@@ -43,7 +52,9 @@ func (a *SSHAudio) Power(parent context.Context) (docking.Power, error) {
 	}
 	p := docking.Power{Status: strings.TrimSpace(string(data)), ObservedAt: time.Now()}
 	switch p.Status {
-	case "Charging", "Full":
+	// "Not charging" means the charger is connected but not charging, e.g.
+	// when the battery is nearly full on the dock.
+	case "Charging", "Full", "Not charging":
 		p.Connected = true
 	case "Discharging":
 	default:
@@ -114,4 +125,23 @@ func PCM16Mono(wav []byte) ([]byte, error) {
 		return nil, bad
 	}
 	return pcm, nil
+}
+
+// Battery reads the battery driver's status and charge in one SSH call.
+func (a *SSHAudio) Battery(parent context.Context) (status string, percent int, err error) {
+	ctx, cancel := context.WithTimeout(parent, 6*time.Second)
+	defer cancel()
+	out, err := a.command(ctx, "cat /sys/class/power_supply/rk-bat/status /sys/class/power_supply/rk-bat/capacity").Output()
+	if err != nil {
+		return "", -1, fmt.Errorf("battery status unavailable: %w", err)
+	}
+	lines := strings.Fields(strings.ReplaceAll(strings.TrimSpace(string(out)), "Not charging", "Not_charging"))
+	if len(lines) != 2 {
+		return "", -1, fmt.Errorf("unexpected battery status %q", out)
+	}
+	pct, err := strconv.Atoi(lines[1])
+	if err != nil || pct < 0 || pct > 100 {
+		return "", -1, fmt.Errorf("unexpected battery level %q", lines[1])
+	}
+	return strings.ReplaceAll(lines[0], "_", " "), pct, nil
 }

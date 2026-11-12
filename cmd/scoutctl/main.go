@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -62,21 +63,31 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: scoutctl status|power|drive|stop|dock|dock-status|dock-cancel|light|screenshot|record|speaker|video|mic-stream|shutdown; use COMMAND -h")
+		return errors.New("usage: scoutctl status|power|drive|move|turn|stop|dock|dock-status|dock-cancel|light|screenshot|record|speaker|say|video|mic-stream|" +
+			"pose|events|guard|record-start|record-stop|routes|patrol|camera|health|mcp|shutdown; use COMMAND -h")
 	}
 	command := os.Args[1]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
-	base := fs.String("url", envOr("SCOUT_API_URL", "http://127.0.0.1:8080"), "loopback Scout API URL (or SCOUT_API_URL)")
+	base := fs.String("url", envOr("SCOUT_API_URL", "http://127.0.0.1:8765"), "loopback Scout API URL (or SCOUT_API_URL)")
 	x := fs.Float64("x", 0, "strafe velocity, -0.2..0.2")
 	y := fs.Float64("y", 0, "forward velocity, -0.3..0.3")
 	z := fs.Float64("z", 0, "rotation, -1.8..1.8")
 	ttl := fs.Int("ttl", 300, "drive lease milliseconds, 100..500; command does not auto-renew")
-	timeout := fs.Int("timeout", 90, "docking timeout seconds, 10..180")
+	timeout := fs.Int("timeout", 300, "docking timeout seconds, 10..600")
 	wait := fs.Bool("wait", true, "wait for docking result; interrupt cancels docking")
 	seconds := fs.Int("seconds", 3, "microphone recording duration, 1..10 seconds")
 	light := fs.Int("command", 4, "light: 0 down, 1 up, 3 max, 4 auto")
 	output := fs.String("out", "", "media output file; '-' writes bytes to stdout")
 	input := fs.String("in", "", "speaker WAV input file (mono PCM16 at 16 kHz)")
+	meters := fs.Float64("m", 0, "move: metres forward (negative reverses), up to 3")
+	strafeM := fs.Float64("strafe", 0, "move: metres sideways (positive left), up to 3")
+	speed := fs.Float64("speed", 0, "move: m/s (0.04..0.2 forward, ..0.3 strafe); turn: rad/s (0.35..1.8); 0 = default")
+	degrees := fs.Float64("deg", 0, "turn: degrees, positive left (counter-clockwise), up to 720")
+	name := fs.String("name", "", "patrol: route name; camera: setting name")
+	value := fs.Int("value", -1, "camera: new value for -name")
+	text := fs.String("text", "", "say: text to speak through the robot")
+	arm := fs.String("arm", "", "guard: on or off (omit to read)")
+	limit := fs.Int("limit", 20, "events: how many, 1..300")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -86,6 +97,7 @@ func run() error {
 	if fs.NArg() != 0 {
 		return errors.New("unexpected positional arguments")
 	}
+	timeoutFor := 15 * time.Second
 	u, err := url.Parse(*base)
 	if err != nil {
 		return err
@@ -96,7 +108,15 @@ func run() error {
 	}
 	token := os.Getenv("SCOUT_API_TOKEN")
 	if token == "" {
-		return errors.New("SCOUT_API_TOKEN is required")
+		// The Scout app saves its token here (mode 0600) when none is given.
+		if dir, err := os.UserConfigDir(); err == nil {
+			if data, err := os.ReadFile(filepath.Join(dir, "Scout", "api-token")); err == nil {
+				token = strings.TrimSpace(string(data))
+			}
+		}
+	}
+	if token == "" {
+		return errors.New("SCOUT_API_TOKEN is required (or run the Scout app once to create its saved token)")
 	}
 	c := client{strings.TrimRight(*base, "/"), token, &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect refused") }}}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -104,9 +124,59 @@ func run() error {
 	method, path := "GET", "/v1/"+command
 	var body []byte
 	switch command {
-	case "status", "power":
+	case "status", "power", "pose", "routes", "health":
 	case "stop", "shutdown":
 		method = "POST"
+	case "move":
+		method = "POST"
+		switch {
+		case *meters != 0 && *strafeM == 0:
+			body, _ = json.Marshal(map[string]any{"distance_m": *meters, "speed": *speed})
+		case *strafeM != 0 && *meters == 0:
+			body, _ = json.Marshal(map[string]any{"strafe_m": *strafeM, "speed": *speed})
+		default:
+			return errors.New("move needs exactly one of -m or -strafe")
+		}
+		timeoutFor = 90 * time.Second
+	case "turn":
+		method = "POST"
+		body, _ = json.Marshal(map[string]any{"degrees": *degrees, "rate": *speed})
+		timeoutFor = 90 * time.Second
+	case "events":
+		path = fmt.Sprintf("/v1/events?limit=%d", *limit)
+	case "guard":
+		switch *arm {
+		case "":
+		case "on", "off":
+			method = "POST"
+			body, _ = json.Marshal(map[string]bool{"armed": *arm == "on"})
+		default:
+			return errors.New("-arm must be on or off")
+		}
+	case "record-start", "record-stop":
+		method, path = "POST", "/v1/record/"+strings.TrimPrefix(command, "record-")
+	case "patrol":
+		if *name == "" {
+			return errors.New("patrol needs -name ROUTE (see scoutctl routes)")
+		}
+		method, path = "POST", "/v1/routes/"+url.PathEscape(*name)+"/run"
+	case "camera":
+		if *name != "" {
+			if *value < 0 {
+				return errors.New("camera -name needs -value")
+			}
+			method = "POST"
+			body, _ = json.Marshal(map[string]any{"name": *name, "value": *value})
+		}
+	case "say":
+		if strings.TrimSpace(*text) == "" {
+			return errors.New("say needs -text")
+		}
+		method = "POST"
+		body, _ = json.Marshal(map[string]string{"text": *text})
+		timeoutFor = 60 * time.Second
+	case "mcp":
+		return serveMCP(ctx, c, os.Stdin, os.Stdout)
 	case "dock-status":
 		path = "/v1/dock"
 	case "dock-cancel":
@@ -243,7 +313,7 @@ func run() error {
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}
-	call, stop := context.WithTimeout(ctx, 15*time.Second)
+	call, stop := context.WithTimeout(ctx, timeoutFor)
 	defer stop()
 	b, err := c.json(call, method, path, body)
 	if err == nil {

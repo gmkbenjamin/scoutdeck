@@ -4,6 +4,7 @@ package docking
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 )
@@ -44,8 +45,24 @@ type Manager struct {
 	cancel   context.CancelFunc
 	done     chan struct{}
 	phaseAt  time.Time
-	interval time.Duration
+	// firmwareActive is set once the firmware reports a working phase in this
+	// operation, so an idle report left over from before the start is ignored.
+	firmwareActive bool
+	interval       time.Duration
 }
+
+// Firmware phases on /CoreNode/going_home_status (BACK_UP_* constants).
+const (
+	phaseSuccess  = 4
+	phaseFail     = 5
+	phaseInactive = 6
+	phaseCancel   = 7
+)
+
+// MaxTimeout bounds one docking operation. A search from across a room can take
+// two minutes and the firmware retries missed reversals itself, so 3 minutes
+// was too short in practice.
+const MaxTimeout = 600 * time.Second
 
 func New(ctx context.Context, hooks Hooks) *Manager {
 	return &Manager{parent: ctx, hooks: hooks, op: Operation{State: "idle"}, interval: time.Second}
@@ -62,8 +79,9 @@ func (m *Manager) Phase(phase int32) {
 	m.op.FirmwarePhase = phase
 	m.phaseAt = time.Now()
 	m.op.UpdatedAt = m.phaseAt
-	if name, ok := map[int32]string{1: "searching", 2: "aligning", 3: "reversing", 4: "verifying", 8: "searching"}[phase]; ok {
+	if name, ok := map[int32]string{1: "searching", 2: "aligning", 3: "reversing", phaseSuccess: "verifying", 8: "searching"}[phase]; ok {
 		m.op.State = name
+		m.firmwareActive = true
 	}
 }
 
@@ -78,8 +96,8 @@ func (m *Manager) WhileIdle(fn func() error) error {
 }
 
 func (m *Manager) Start(timeout time.Duration) (Operation, error) {
-	if timeout < 10*time.Second || timeout > 180*time.Second {
-		return Operation{}, fmt.Errorf("timeout_seconds must be 10..180")
+	if timeout < 10*time.Second || timeout > MaxTimeout {
+		return Operation{}, fmt.Errorf("timeout_seconds must be 10..%d", int(MaxTimeout/time.Second))
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -97,6 +115,7 @@ func (m *Manager) Start(timeout time.Duration) (Operation, error) {
 	m.cancel = cancel
 	m.done = make(chan struct{})
 	m.phaseAt = time.Time{}
+	m.firmwareActive = false
 	m.op = Operation{ID: fmt.Sprintf("dock-%d", now.UnixNano()), State: "starting", Active: true, StartedAt: now, UpdatedAt: now, Deadline: now.Add(timeout)}
 	op := m.op
 	go m.run(ctx, m.done)
@@ -159,6 +178,12 @@ func (m *Manager) run(ctx context.Context, done chan struct{}) {
 			m.op.State = "cancel_failed"
 			m.op.Error = fmt.Sprintf("%s; cancellation: %v", detail, err)
 			m.op.Active = true
+		}
+		// Keyboard and gamepad docking has no API caller to report to.
+		if m.op.Error != "" {
+			log.Printf("docking %s: %s", m.op.State, m.op.Error)
+		} else {
+			log.Printf("docking %s", m.op.State)
 		}
 		m.cancel()
 	}()
@@ -237,9 +262,17 @@ func (m *Manager) run(ctx context.Context, done chan struct{}) {
 			m.mu.Lock()
 			phase := m.op.FirmwarePhase
 			phaseAt := m.phaseAt
+			active := m.firmwareActive
 			m.mu.Unlock()
-			if phase == 5 && !phaseAt.IsZero() {
-				detail = "robot reported docking failure without external power"
+			// The firmware stopped without contact. Allow a few probes first: it
+			// can leave its routine just before the charging status flips.
+			stopped := phase == phaseFail || active && (phase == phaseInactive || phase == phaseCancel)
+			if stopped && !phaseAt.IsZero() && connectedCount == 0 && time.Since(phaseAt) >= 5*m.interval {
+				detail = map[int32]string{
+					phaseFail:     "robot reported docking failure without external power",
+					phaseInactive: "robot stopped docking without external power",
+					phaseCancel:   "robot cancelled docking without external power",
+				}[phase]
 				return
 			}
 		}

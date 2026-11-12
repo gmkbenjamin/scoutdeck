@@ -1,21 +1,25 @@
 module github.com/shell-company/scout
 
-go 1.24.0
+go 1.25.0
 
 replace github.com/aler9/goroslib => ./third_party/goroslib
 
 require (
 	github.com/aler9/goroslib v0.0.0-20220831065204-cd7cf8973f37
-	github.com/hajimehoshi/ebiten/v2 v2.9.8
+	github.com/hajimehoshi/ebiten/v2 v2.10.6
+	golang.org/x/image v0.45.0
+	rsc.io/qr v0.2.0
 )
 
 require (
-	github.com/ebitengine/gomobile v0.0.0-20250923094054-ea854a63cce1 // indirect
+	github.com/ebitengine/gomobile v0.0.0-20260820040257-d11f821a26a6 // indirect
 	github.com/ebitengine/hideconsole v1.0.0 // indirect
-	github.com/ebitengine/purego v0.9.1 // indirect
+	github.com/ebitengine/purego v0.11.3 // indirect
+	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/gookit/color v1.5.0 // indirect
-	github.com/jezek/xgb v1.1.1 // indirect
+	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
 	github.com/xo/terminfo v0.0.0-20210125001918-ca9a967f8778 // indirect
-	golang.org/x/sync v0.17.0 // indirect
-	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 )

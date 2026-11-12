@@ -31,6 +31,15 @@ type Controller struct {
 	manualAt, expires     time.Time
 	halt, release, closed bool
 	last                  Snapshot
+	sending               string // owner of the command being published
+}
+
+// Sending returns the owner of the command currently being published, for
+// publish callbacks that treat manual and agent motion differently.
+func (c *Controller) Sending() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sending
 }
 
 func (c *Controller) Manual(m Motion, stop bool, now time.Time) {
@@ -122,6 +131,11 @@ func (c *Controller) Snapshot() Snapshot {
 // Run owns all velocity writes. Shutdown sends zero before returning to the caller
 // that closes the publisher. publish must finish its transport write before returning.
 func (c *Controller) Run(ctx context.Context, ticks <-chan time.Time, publish func(Motion) error) error {
+	// A controller can run again after a reconnect; commands are accepted
+	// only while a loop is running.
+	c.mu.Lock()
+	c.closed = false
+	c.mu.Unlock()
 	defer func() {
 		c.mu.Lock()
 		c.closed = true
@@ -136,6 +150,7 @@ func (c *Controller) Run(ctx context.Context, ticks <-chan time.Time, publish fu
 		case <-ticks:
 			c.mu.Lock()
 			s := c.command(time.Now())
+			c.sending = s.Owner
 			c.mu.Unlock()
 			// Recheck cancellation before submitting a sampled movement command.
 			if ctx.Err() != nil {

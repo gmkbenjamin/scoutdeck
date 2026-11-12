@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"net/http"
 	"os/exec"
 	"strconv"
 	"sync"
@@ -89,4 +90,75 @@ capture:
 	binary.LittleEndian.PutUint32(wav[40:], uint32(len(pcm)))
 	copy(wav[44:], pcm)
 	return wav, nil
+}
+
+// StreamPCM decodes the robot's AAC microphone stream to raw 16 kHz mono
+// signed 16-bit little-endian PCM for speech recognition. It ends after five
+// seconds without microphone packets or when the client disconnects.
+func (a *API) microphonePCM(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	ch, unsub := a.Media.SubscribeAudio()
+	defer unsub()
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-v", "error", "-fflags", "nobuffer", "-probesize", "32", "-analyzeduration", "0",
+		"-f", "aac", "-i", "pipe:0", "-ac", "1", "-ar", "16000", "-f", "s16le", "pipe:1")
+	cmd.WaitDelay = time.Second
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		fail(w, 500, err)
+		return
+	}
+	if err := cmd.Start(); err != nil {
+		fail(w, 503, fmt.Errorf("ffmpeg is required for PCM microphone audio: %w", err))
+		return
+	}
+	defer cmd.Wait()
+	go func() {
+		defer stdin.Close()
+		idle := time.NewTimer(5 * time.Second)
+		defer idle.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-idle.C:
+				cancel()
+				return
+			case data := <-ch:
+				if _, err := stdin.Write(data); err != nil {
+					return
+				}
+				if !idle.Stop() {
+					select {
+					case <-idle.C:
+					default:
+					}
+				}
+				idle.Reset(5 * time.Second)
+			}
+		}
+	}()
+	w.Header().Set("Content-Type", "audio/L16;rate=16000;channels=1")
+	rc := http.NewResponseController(w)
+	buf := make([]byte, 3200) // 100 ms
+	for {
+		n, err := stdout.Read(buf)
+		if n > 0 {
+			_ = rc.SetWriteDeadline(time.Now().Add(2 * time.Second))
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return
+			}
+			if rc.Flush() != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
 }

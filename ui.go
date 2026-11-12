@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"log"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/shell-company/scout/internal/control"
 	"github.com/shell-company/scout/internal/manual"
 )
@@ -61,9 +64,109 @@ func readInput() manual.Frame {
 	return f
 }
 
+type Game struct {
+	app         *application
+	input       manual.Mapper
+	inputStatus manual.Result
+	inputTest   bool
+	lastStop    bool
+	unfocused   bool
+	showHelp    bool
+	host        textField // connect screen address
+	menu        robotMenu
+	finder      finder
+	// holdInput keeps driving input off until keys used by an overlay are
+	// released, so Esc or Enter cannot leak into the controller.
+	holdInput bool
+	hud       *hud
+	cleanHUD  bool // Tab hides the map, heading tape and event feed
+}
+
+// finder scans the local network for robots from the connect screen.
+type finder struct {
+	mu       sync.Mutex
+	scanning bool
+	found    []string
+	sel      int
+}
+
+func (f *finder) start(ctx context.Context) {
+	f.mu.Lock()
+	if f.scanning {
+		f.mu.Unlock()
+		return
+	}
+	f.scanning, f.found, f.sel = true, nil, -1
+	f.mu.Unlock()
+	go func() {
+		found := discoverRobots(ctx)
+		f.mu.Lock()
+		f.scanning, f.found = false, found
+		f.mu.Unlock()
+	}()
+}
+
+func (f *finder) snapshot() (bool, []string, int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.scanning, append([]string(nil), f.found...), f.sel
+}
+
+func newGame(a *application, inputTest bool) *Game {
+	_, _, t := a.connState()
+	return &Game{app: a, input: manual.Mapper{KeyboardOnly: *flagControlScheme == "keyboard"}, inputTest: inputTest,
+		host: textField{text: t.Host, max: 253, allow: hostRune}, hud: newHUD()}
+}
+
 func (g *Game) Update() error {
 	if g.app.ctx.Err() != nil {
 		return ebiten.Termination
+	}
+	// Plain keys: Mac laptops need Fn for F1-F12.
+	if inpututil.IsKeyJustPressed(ebiten.KeySlash) && g.menu.page == menuClosed {
+		g.showHelp = !g.showHelp
+	}
+	if !g.inputTest && !g.app.ready.Load() {
+		g.menu.page = menuClosed
+		return g.updateConnect()
+	}
+	if !g.inputTest && g.menu.page == menuClosed && inpututil.IsKeyJustPressed(ebiten.KeyM) {
+		g.menu.open(g)
+		g.showHelp = false
+		return nil
+	}
+	if g.menu.page == menuClosed {
+		switch {
+		case inpututil.IsKeyJustPressed(ebiten.KeyTab):
+			g.cleanHUD = !g.cleanHUD
+		case inpututil.IsKeyJustPressed(ebiten.KeyF):
+			ebiten.SetFullscreen(!ebiten.IsFullscreen())
+		case g.inputTest:
+		case inpututil.IsKeyJustPressed(ebiten.KeyV):
+			g.app.toggleVoice()
+		case inpututil.IsKeyJustPressed(ebiten.KeyR):
+			g.app.toggleRecording()
+		case inpututil.IsKeyJustPressed(ebiten.KeyG):
+			gs := g.app.guardSettings()
+			gs.Armed = !gs.Armed
+			if err := g.app.setGuard(gs); err != nil {
+				g.app.notices.add(err.Error(), noticeBad)
+			} else if gs.Armed {
+				g.app.notices.add("Guard mode armed: alerts for motion"+map[bool]string{true: ", people and pets", false: ""}[gs.Objects], noticeGood)
+			} else {
+				g.app.notices.add("Guard mode off", noticeInfo)
+			}
+		}
+	}
+	if g.menu.update(g) {
+		g.holdInput = true
+		return nil
+	}
+	if g.holdInput {
+		if ebiten.IsKeyPressed(ebiten.KeyEscape) || ebiten.IsKeyPressed(ebiten.KeyEnter) || ebiten.IsKeyPressed(ebiten.KeyM) || ebiten.IsKeyPressed(ebiten.KeyY) {
+			return nil
+		}
+		g.holdInput = false
 	}
 	result := g.applyInput(readInput())
 	g.inputStatus = result
@@ -79,7 +182,11 @@ func (g *Game) Update() error {
 		err := g.app.actions.Submit(func(ctx context.Context) error {
 			switch command {
 			case "screenshot":
-				return saveScreenshot()
+				name, err := saveScreenshot()
+				if err == nil {
+					g.app.notices.add("Screenshot saved: "+name, noticeGood)
+				}
+				return err
 			case "dim":
 				return g.app.action(ctx, "light", 0)
 			case "bright":
@@ -87,11 +194,16 @@ func (g *Game) Update() error {
 			case "auto-light":
 				return g.app.action(ctx, "light", 4)
 			default:
-				return g.app.action(ctx, "home", 0)
+				if err := g.app.action(ctx, "home", 0); err != nil {
+					return err
+				}
+				g.app.notices.add("Docking started - press X to cancel", noticeInfo)
+				return nil
 			}
 		})
 		if err != nil {
 			log.Print(err)
+			g.app.notices.add(err.Error(), noticeBad)
 		}
 	}
 	return nil
@@ -130,4 +242,49 @@ func (g *Game) applyInput(frame manual.Frame) manual.Result {
 	}
 	g.app.control.Manual(motion, stop, time.Now())
 	return result
+}
+
+// updateConnect edits the robot address until a connection succeeds.
+func (g *Game) updateConnect() error {
+	phase, _, _ := g.app.connState()
+	if s := g.app.takeSuggestion(); s != "" {
+		g.host.text = s
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		g.app.cancel()
+		return ebiten.Termination
+	}
+	if phase == connConnecting {
+		return nil
+	}
+	_, found, sel := g.finder.snapshot()
+	switch {
+	case pressed(ebiten.KeyTab):
+		g.finder.start(g.app.ctx)
+	case len(found) > 0 && pressed(ebiten.KeyArrowDown, ebiten.KeyArrowUp):
+		step := 1
+		if pressed(ebiten.KeyArrowUp) {
+			step = len(found) - 1
+		}
+		sel = (sel + step + len(found)) % len(found)
+		if sel < 0 {
+			sel = 0
+		}
+		g.finder.mu.Lock()
+		g.finder.sel = sel
+		g.finder.mu.Unlock()
+		g.host.text = found[sel]
+	case pressed(ebiten.KeyEnter, ebiten.KeyNumpadEnter):
+		host := strings.TrimSpace(g.host.text)
+		if err := validHost(host); err != nil {
+			g.app.setConn(connFailed, err.Error())
+			return nil
+		}
+		set := false
+		flagVisitSSH(&set)
+		g.app.startConnect(target{}.withHost(host, g.app.settings.SSHUser, set))
+	default:
+		g.host.update()
+	}
+	return nil
 }

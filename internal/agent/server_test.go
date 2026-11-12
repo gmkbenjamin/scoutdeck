@@ -133,7 +133,7 @@ func TestDockOperationAPI(t *testing.T) {
 			t.Fatal(w.Code, w.Body)
 		}
 	}
-	if w := request(a, "POST", "/v1/dock", `{"timeout_seconds":181}`, a.Token); w.Code != 400 {
+	if w := request(a, "POST", "/v1/dock", `{"timeout_seconds":601}`, a.Token); w.Code != 400 {
 		t.Fatal(w.Code)
 	}
 	if w := request(a, "GET", "/v1/dock", "", a.Token); w.Code != 200 || !strings.Contains(w.Body.String(), "searching") {
@@ -150,5 +150,44 @@ func TestDockOperationAPI(t *testing.T) {
 	a.StartDock = func(int) (any, error) { return nil, errors.New("already active") }
 	if w := request(a, "POST", "/v1/dock", `{}`, a.Token); w.Code != 409 {
 		t.Fatal(w.Code)
+	}
+}
+
+func TestWebSessionCookie(t *testing.T) {
+	a := testAPI()
+	call := func(method, path, cookie string, hdr map[string]string) int {
+		r := httptest.NewRequest(method, path, strings.NewReader(`{"command":4}`))
+		r.Header.Set("Content-Type", "application/json")
+		if cookie != "" {
+			r.AddCookie(&http.Cookie{Name: SessionCookie, Value: cookie})
+		}
+		for k, v := range hdr {
+			r.Header.Set(k, v)
+		}
+		w := httptest.NewRecorder()
+		a.Handler().ServeHTTP(w, r)
+		return w.Code
+	}
+	good := SessionValue(a.Token)
+	if c := call("GET", "/v1/status", good, map[string]string{"Origin": "https://mac.example.ts.net"}); c != 200 {
+		t.Fatal("cookie GET", c)
+	}
+	if c := call("GET", "/v1/status", "forged", nil); c != 401 {
+		t.Fatal("forged cookie", c)
+	}
+	if c := call("POST", "/v1/stop", good, map[string]string{"Sec-Fetch-Site": "cross-site"}); c != 403 {
+		t.Fatal("cross-site POST", c)
+	}
+	if c := call("POST", "/v1/stop", good, nil); c != 403 {
+		t.Fatal("POST without origin evidence", c)
+	}
+	if c := call("POST", "/v1/stop", good, map[string]string{"Sec-Fetch-Site": "same-origin"}); c != 200 {
+		t.Fatal("same-origin POST", c)
+	}
+	if c := call("POST", "/v1/stop", good, map[string]string{"Origin": "http://evil.test"}); c != 403 {
+		t.Fatal("origin mismatch", c)
+	}
+	if c := call("POST", "/v1/shutdown", good, map[string]string{"Sec-Fetch-Site": "same-origin"}); c != 403 {
+		t.Fatal("web shutdown", c)
 	}
 }

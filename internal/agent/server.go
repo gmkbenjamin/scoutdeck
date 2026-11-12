@@ -3,12 +3,16 @@ package agent
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -30,7 +34,20 @@ type API struct {
 	StartDock  func(int) (any, error)
 	DockStatus func() any
 	Power      func(context.Context) (any, error)
+	// Auto-dock on low battery (settings persist in the app).
+	AutoDock    func() any
+	SetAutoDock func(enabled bool, threshold int) (any, error)
+	// Extra registers more endpoints on the same authenticated mux.
+	Extra func(*http.ServeMux)
 }
+
+// WriteJSON, ReadJSON and Fail are the API's response helpers, for endpoints
+// registered through Extra.
+func WriteJSON(w http.ResponseWriter, status int, v any) { writeJSON(w, status, v) }
+func ReadJSON(w http.ResponseWriter, r *http.Request, out any) bool {
+	return readJSON(w, r, out)
+}
+func Fail(w http.ResponseWriter, status int, err error) { fail(w, status, err) }
 
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -79,12 +96,12 @@ func (a *API) Handler() http.Handler {
 		}
 		in := struct {
 			Timeout int `json:"timeout_seconds"`
-		}{Timeout: 90}
+		}{Timeout: 300}
 		if r.ContentLength != 0 && !readJSON(w, r, &in) {
 			return
 		}
-		if in.Timeout < 10 || in.Timeout > 180 {
-			fail(w, 400, fmt.Errorf("timeout_seconds must be 10..180"))
+		if in.Timeout < 10 || in.Timeout > 600 {
+			fail(w, 400, fmt.Errorf("timeout_seconds must be 10..600"))
 			return
 		}
 		op, err := a.StartDock(in.Timeout)
@@ -123,6 +140,36 @@ func (a *API) Handler() http.Handler {
 		}
 		writeJSON(w, 200, a.DockStatus())
 	})
+	mux.HandleFunc("GET /v1/autodock", func(w http.ResponseWriter, r *http.Request) {
+		if a.AutoDock == nil {
+			fail(w, 503, fmt.Errorf("auto-dock is not configured"))
+			return
+		}
+		writeJSON(w, 200, a.AutoDock())
+	})
+	mux.HandleFunc("POST /v1/autodock", func(w http.ResponseWriter, r *http.Request) {
+		if a.SetAutoDock == nil {
+			fail(w, 503, fmt.Errorf("auto-dock is not configured"))
+			return
+		}
+		var in struct {
+			Enabled   *bool `json:"enabled"`
+			Threshold int   `json:"threshold"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		if in.Enabled == nil {
+			fail(w, 400, fmt.Errorf("enabled is required"))
+			return
+		}
+		out, err := a.SetAutoDock(*in.Enabled, in.Threshold)
+		if err != nil {
+			fail(w, 400, err)
+			return
+		}
+		writeJSON(w, 200, out)
+	})
 	mux.HandleFunc("GET /v1/power", func(w http.ResponseWriter, r *http.Request) {
 		if a.Power == nil {
 			fail(w, 503, fmt.Errorf("live charging checks require -ssh"))
@@ -160,6 +207,7 @@ func (a *API) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /v1/video.mjpeg", a.video)
 	mux.HandleFunc("GET /v1/microphone.aac", a.microphone)
+	mux.HandleFunc("GET /v1/microphone.pcm", a.microphonePCM)
 	mux.HandleFunc("GET /v1/microphone.wav", func(w http.ResponseWriter, r *http.Request) {
 		seconds := 3
 		if v := r.URL.Query().Get("seconds"); v != "" {
@@ -207,9 +255,31 @@ func (a *API) Handler() http.Handler {
 		a.Shutdown()
 		writeJSON(w, 200, map[string]bool{"accepted": true})
 	})
+	if a.Extra != nil {
+		a.Extra(mux)
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		// The paired web app authenticates with a session cookie derived from
+		// the token. It may only change state from its own origin, and it
+		// cannot shut the controller down.
+		if c, err := r.Cookie(SessionCookie); err == nil && a.Token != "" {
+			if subtle.ConstantTimeCompare([]byte(c.Value), []byte(SessionValue(a.Token))) != 1 {
+				fail(w, 401, fmt.Errorf("session expired; pair this device again"))
+				return
+			}
+			if r.Method != http.MethodGet && r.Method != http.MethodHead && !SameOrigin(r) {
+				fail(w, 403, fmt.Errorf("cross-origin request refused"))
+				return
+			}
+			if r.URL.Path == "/v1/shutdown" {
+				fail(w, 403, fmt.Errorf("shutdown is not available from the web app"))
+				return
+			}
+			mux.ServeHTTP(w, r)
+			return
+		}
 		// No browser-origin access, query-string tokens, or unauthenticated local calls.
 		if r.Header.Get("Origin") != "" {
 			fail(w, 403, fmt.Errorf("browser origins are not allowed"))
@@ -340,4 +410,33 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 func fail(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+// SessionCookie holds the web app's session. Its value is derived from the API
+// token, so sessions survive restarts and rotating the token revokes them.
+const SessionCookie = "scout_session"
+
+func SessionValue(token string) string {
+	mac := hmac.New(sha256.New, []byte(token))
+	mac.Write([]byte("scout-web-session-v1"))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// SameOrigin reports whether a browser request came from the page's own
+// origin. Safari, Chrome and Firefox send Sec-Fetch-Site; Origin is the
+// fallback for older browsers.
+func SameOrigin(r *http.Request) bool {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "same-origin":
+		return true
+	case "":
+	default:
+		return false
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	return err == nil && u.Host != "" && (u.Host == r.Host || u.Host == r.Header.Get("X-Forwarded-Host"))
 }

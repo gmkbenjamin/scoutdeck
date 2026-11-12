@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0a0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Scout">
+<meta name="referrer" content="no-referrer">
+<title>Scout</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<div id="app" class="app" data-state="loading">
+  <div class="stage" id="stage">
+    <img id="video" alt="Robot camera" draggable="false">
+    <div class="det-layer" id="detLayer" aria-hidden="true"></div>
+    <div class="stage-msg" id="stageMsg">Connecting…</div>
+    <div class="crosshair" aria-hidden="true"></div>
+    <div class="range" id="range" aria-live="off"><b id="rangeVal">—</b><span>RANGE</span></div>
+    <canvas class="minimap" id="minimap" width="240" height="240" aria-label="Map of where the robot has been"></canvas>
+  </div>
+
+  <header class="topbar">
+    <div class="tb-left">
+      <span class="dot" id="liveDot"></span>
+      <strong class="brand">SCOUT</strong>
+      <span class="muted host" id="host"></span>
+      <span class="live" id="live">—</span>
+      <span class="chips" id="chips"></span>
+    </div>
+    <div class="tb-right">
+      <span class="badge" id="owner">IDLE</span>
+      <span class="battery" id="battery" title="Battery">
+        <span class="muted batt-label" id="battLabel">Battery</span>
+        <strong id="battPct">--</strong>
+        <span class="batt-icon"><span id="battFill"></span></span>
+      </span>
+      <button class="icon-btn" id="eventsBtn" aria-label="Events">◎<span class="count" id="eventCount" hidden></span></button>
+      <button class="icon-btn" id="menuBtn" aria-label="Settings">⋯</button>
+    </div>
+  </header>
+
+  <div class="banner" id="stopBanner" hidden>STOPPED</div>
+  <div class="banner warn" id="autoBanner" hidden></div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <section class="dock" id="dockPanel" hidden>
+    <div class="dock-head">
+      <strong>AUTO DOCK</strong>
+      <span id="dockState" class="dock-state"></span>
+      <span class="muted dock-time" id="dockTime"></span>
+    </div>
+    <ol class="steps" id="steps">
+      <li>Search</li><li>Align</li><li>Reverse</li><li>Charging</li>
+    </ol>
+    <div class="dock-line muted" id="dockLine"></div>
+  </section>
+
+  <section class="dock activity" id="actPanel" hidden>
+    <div class="dock-head">
+      <strong id="actKind">MOVE</strong>
+      <span id="actLabel" class="dock-state"></span>
+      <span class="muted dock-time" id="actTime"></span>
+    </div>
+    <div class="bar"><span id="actBar"></span></div>
+    <div class="dock-line muted" id="actLine"></div>
+  </section>
+
+  <div class="controls" id="controls">
+    <div class="drive">
+      <div class="joystick" id="joy" aria-label="Drive joystick">
+        <div class="joy-ring"></div>
+        <div class="knob" id="knob"></div>
+      </div>
+      <div class="strafe" id="strafe" aria-label="Strafe slider">
+        <span class="strafe-label">STRAFE</span>
+        <div class="strafe-knob" id="strafeKnob"></div>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn stop" id="stopBtn">STOP</button>
+      <div class="btn-grid">
+        <button class="btn" id="dockBtn">Dock</button>
+        <button class="btn" id="snapBtn">Snapshot</button>
+        <button class="btn" id="recBtn">Rec</button>
+        <button class="btn" id="talkBtn" title="Hold to talk through the robot">Hold to talk</button>
+        <button class="btn" id="listenBtn">Listen</button>
+        <button class="btn" id="guardBtn">Guard</button>
+        <button class="btn" id="dimBtn">Dim</button>
+        <button class="btn" id="brightBtn">Bright</button>
+        <button class="btn" id="turnBtn" title="Turn around (closed loop)">Turn 180°</button>
+      </div>
+      <div class="speed" role="radiogroup" aria-label="Speed">
+        <span class="muted speed-label">SPEED</span>
+        <button data-speed="0" role="radio">Slow</button>
+        <button data-speed="1" role="radio">Normal</button>
+        <button data-speed="2" role="radio">Fast</button>
+      </div>
+    </div>
+    <div class="kbd-hint muted" id="kbdHint">
+      <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> drive</span>
+      <span><kbd>Q</kbd><kbd>E</kbd> strafe</span>
+      <span><kbd>X</kbd> stop</span>
+      <span><kbd>H</kbd> dock</span>
+      <span><kbd>Space</kbd> snapshot</span>
+      <span><kbd>R</kbd> record</span>
+      <span><kbd>G</kbd> guard</span>
+      <span><kbd>T</kbd> hold to talk</span>
+      <span><kbd>O</kbd><kbd>P</kbd> speed</span>
+      <span class="pad-name" id="padName"></span>
+    </div>
+  </div>
+</div>
+
+<audio id="listenAudio" preload="none"></audio>
+
+<div class="overlay" id="offline" hidden>
+  <div class="card">
+    <h2>Robot offline</h2>
+    <p class="muted" id="offlineText">The Mac app is running but isn't connected to the robot. Reconnect it in the Scout window on the Mac.</p>
+    <button class="btn" id="offlineEvents">View events</button>
+  </div>
+</div>
+
+<div class="overlay" id="pairing" hidden>
+  <form class="card" id="pairForm" autocomplete="off">
+    <img src="/apple-touch-icon.png" alt="" class="card-icon">
+    <h2>Pair with Scout</h2>
+    <p class="muted">On the Mac, open Scout's <b>Robot menu → Phone &amp; tablet</b> (press M). Scan the QR code, or enter the 6-digit one-time code shown there.</p>
+    <input id="pairCode" type="text" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" placeholder="6-digit code" aria-label="One-time code">
+    <button class="btn primary" type="submit">Pair this device</button>
+    <p class="error" id="pairError"></p>
+  </form>
+</div>
+
+<div class="overlay sheet-overlay" id="menu" hidden>
+  <div class="sheet" role="dialog" aria-label="Scout">
+    <nav class="tabs" id="tabs">
+      <button data-tab="events">Events</button>
+      <button data-tab="patrols">Patrols</button>
+      <button data-tab="clips">Robot clips</button>
+      <button data-tab="camera">Camera</button>
+      <button data-tab="health">Health</button>
+      <button data-tab="settings">Settings</button>
+      <button class="close" id="menuClose" aria-label="Close">✕</button>
+    </nav>
+
+    <section class="tab" data-panel="events">
+      <div class="tab-head">
+        <h3>Events</h3>
+        <label class="setting-row inline"><span>Guard mode</span><input type="checkbox" id="guardOn"></label>
+        <button class="btn small-btn" id="eventsClear">Clear</button>
+      </div>
+      <p class="muted small">Motion seen by the camera, people and pets from the robot's model, patrols and docking. Guard mode watches while the robot is parked.</p>
+      <div class="event-list" id="eventList"></div>
+    </section>
+
+    <section class="tab" data-panel="patrols">
+      <div class="tab-head"><h3>Patrol routes</h3></div>
+      <div class="setting" id="routeRec">
+        <div class="setting-row"><input id="routeName" type="text" maxlength="40" placeholder="Route name, e.g. Downstairs" aria-label="Route name"><button class="btn primary small-btn" id="routeStart">Record</button></div>
+        <p class="muted small">Start at the dock, press Record, drive the route with the joystick, then Save. Turns and straight runs replay with sensor feedback.</p>
+      </div>
+      <div class="setting rec-live" id="routeRecLive" hidden>
+        <div class="setting-row"><span><b class="rec-dot">●</b> Recording <b id="routeRecName"></b> · <span id="routeRecSteps"></span></span>
+          <span><button class="btn small-btn" id="routeDiscard">Discard</button> <button class="btn primary small-btn" id="routeSave">Save</button></span></div>
+      </div>
+      <div class="route-list" id="routeList"></div>
+    </section>
+
+    <section class="tab" data-panel="clips">
+      <div class="tab-head"><h3>Recordings on the robot</h3><button class="btn small-btn" id="clipsReload">Refresh</button></div>
+      <p class="muted small">Clips and snapshots the robot saved itself. Recordings you make with Rec are saved on the Mac in Movies › Scout.</p>
+      <div class="clip-list" id="clipList"></div>
+    </section>
+
+    <section class="tab" data-panel="camera">
+      <div class="tab-head"><h3>Camera</h3></div>
+      <div class="cam-list" id="camList"></div>
+    </section>
+
+    <section class="tab" data-panel="health">
+      <div class="tab-head"><h3>Robot health</h3><button class="btn small-btn" id="healthReload">Refresh</button></div>
+      <div class="tiles" id="healthTiles"></div>
+      <h4 class="muted">Battery · last 24 hours</h4>
+      <canvas class="chart" id="battChart" width="900" height="260"></canvas>
+      <p class="muted small" id="healthLine"></p>
+    </section>
+
+    <section class="tab" data-panel="settings">
+      <div class="setting">
+        <label class="setting-row"><span>Auto-dock on low battery</span><input type="checkbox" id="adOn"></label>
+        <label class="setting-row"><span>Dock when battery is at or below</span>
+          <select id="adAt"><option value="10">10%</option><option value="15">15%</option><option value="20">20%</option><option value="25">25%</option><option value="30">30%</option><option value="35">35%</option><option value="40">40%</option><option value="45">45%</option><option value="50">50%</option></select>
+        </label>
+        <p class="muted small">Works while the Scout app on the Mac is running. You get a 30-second warning; driving postpones it.</p>
+      </div>
+      <div class="setting">
+        <label class="setting-row"><span>Obstacle guard while driving</span><input type="checkbox" id="ogOn"></label>
+        <p class="muted small">Slows down from 0.6 m and stops 0.18 m from something ahead (time-of-flight sensor). Moves, patrols and agents are always guarded.</p>
+      </div>
+      <div class="setting">
+        <label class="setting-row"><span>Guard: people and pets (robot model)</span><input type="checkbox" id="gObjects"></label>
+        <label class="setting-row"><span>Guard: Mac notifications</span><input type="checkbox" id="gNotify"></label>
+        <label class="setting-row"><span>Motion sensitivity</span>
+          <select id="gSens"><option value="1">1 · least</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5 · most</option></select>
+        </label>
+      </div>
+      <div class="setting">
+        <div class="setting-row"><input id="sayText" type="text" maxlength="500" placeholder="Type something for Scout to say" aria-label="Text to speak"><button class="btn small-btn" id="sayBtn">Say</button></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="fullBtn">Full screen</button>
+        <button class="btn" id="unpairBtn">Unpair this device</button>
+      </div>
+      <p class="muted small">Paired with the Scout app on your Mac. Robot maintenance (Wi-Fi, reset) is in the Mac app.</p>
+    </section>
+  </div>
+</div>
+</body>
+</html>

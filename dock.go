@@ -41,6 +41,8 @@ func (a *application) cancelDockNative(ctx context.Context) error {
 }
 
 func (a *application) stopAll(ctx context.Context) error {
+	a.humanAt.Store(time.Now().UnixNano())
+	a.act.stop()
 	a.control.Stop()
 	if a.dock != nil {
 		if err := a.dock.Cancel(ctx); err != nil {

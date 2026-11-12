@@ -145,3 +145,50 @@ func TestFirmwareFailureStopsWithoutSuccess(t *testing.T) {
 		t.Fatal(m.Snapshot())
 	}
 }
+
+func TestFirmwareStopEndsOperationOnlyAfterItStarted(t *testing.T) {
+	for _, phase := range []int32{6, 7} {
+		m, starts, cancels, _ := fixture(context.Background())
+		if _, err := m.Start(10 * time.Second); err != nil {
+			t.Fatal(err)
+		}
+		await(t, func() bool { return starts.Load() == 1 })
+		// An idle report before the firmware starts working must be ignored.
+		m.Phase(phase)
+		time.Sleep(20 * time.Millisecond)
+		if !m.Active() {
+			t.Fatalf("phase %d before start ended docking: %+v", phase, m.Snapshot())
+		}
+		m.Phase(1)
+		m.Phase(phase)
+		await(t, func() bool { return !m.Active() })
+		if op := m.Snapshot(); op.State != "failed" || op.ChargingVerified || cancels.Load() != 1 {
+			t.Fatal(phase, op)
+		}
+	}
+}
+func TestFirmwareStopWithPowerStillSucceeds(t *testing.T) {
+	m, starts, _, power := fixture(context.Background())
+	m.interval = 5 * time.Millisecond
+	if _, err := m.Start(10 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	await(t, func() bool { return starts.Load() == 1 })
+	m.Phase(3)
+	power.Store(true)
+	m.Phase(6)
+	await(t, func() bool { return !m.Active() })
+	if op := m.Snapshot(); op.State != "charging" || !op.ChargingVerified {
+		t.Fatal(op)
+	}
+}
+func TestTimeoutAllowsSlowFirmware(t *testing.T) {
+	m, _, _, _ := fixture(context.Background())
+	if _, err := m.Start(MaxTimeout + time.Second); err == nil {
+		t.Fatal("timeout above maximum accepted")
+	}
+	if _, err := m.Start(300 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	_ = m.Cancel(context.Background())
+}

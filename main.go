@@ -25,9 +25,7 @@ import (
 	"github.com/aler9/goroslib/pkg/msg"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/shell-company/scout/internal/control"
-	"github.com/shell-company/scout/internal/manual"
 )
 
 var (
@@ -94,70 +92,6 @@ func enqueueCameraFrame(frame []byte) {
 	}
 }
 
-type Game struct {
-	app         *application
-	input       manual.Mapper
-	inputStatus manual.Result
-	inputTest   bool
-	lastStop    bool
-	unfocused   bool
-}
-
-func (g *Game) Draw(screen *ebiten.Image) {
-	// Non-blocking frame read so input/render loop doesn't freeze when camera frames are delayed.
-	select {
-	case imageFromCamera := <-cameraData:
-		cameraFeed, _, err := ebitenutil.NewImageFromReader(bytes.NewReader(imageFromCamera))
-		if err != nil {
-			fmt.Println(err)
-		} else {
-			lastCameraFeed = cameraFeed
-		}
-	default:
-	}
-
-	if lastCameraFeed != nil {
-		screen.DrawImage(lastCameraFeed, nil)
-	}
-	// print some HUD data
-	state := g.app.control.Snapshot()
-	ebitenutil.DebugPrint(screen, fmt.Sprintf("%s x:%.2f y:%.2f turn:%.2f speed:%.1f", state.Owner, state.Motion.X, state.Motion.Y, state.Motion.Z, g.inputStatus.Speed))
-	batteryMu.RLock()
-	batteryPercent, batteryChargeState := batteryPercent, batteryChargeState
-	batteryMu.RUnlock()
-
-	batteryStatus := "battery: --"
-	if batteryPercent >= 0 {
-		charging := "unknown"
-		switch batteryChargeState {
-		case 0:
-			charging = "charging"
-		case 1:
-			charging = "on battery"
-		case 2:
-			charging = "full"
-		case 3:
-			charging = "unknown"
-		}
-
-		if (batteryChargeState == 0 || batteryChargeState == 2) && batteryPercent == 100 {
-			batteryStatus = "battery: charging (reported 100%)"
-		} else {
-			batteryStatus = fmt.Sprintf("battery: %d%% (%s)", batteryPercent, charging)
-		}
-	}
-	ebitenutil.DebugPrintAt(screen, batteryStatus, 10, 20)
-	ebitenutil.DebugPrintAt(screen, g.inputStatus.Source, 10, 40)
-	if g.inputStatus.Stop {
-		ebitenutil.DebugPrintAt(screen, "STOPPED - release keys/sticks/buttons to resume", 10, 60)
-	}
-	if g.inputTest {
-		ebitenutil.DebugPrintAt(screen, "INPUT TEST - no robot connection or commands", 10, 90)
-	}
-	ebitenutil.DebugPrintAt(screen, "WASD/arrows move | Q/E strafe | X / Xbox B stop | H / Y dock | Space / A screenshot", 10, WindowY-40)
-	ebitenutil.DebugPrintAt(screen, "O/P or LB/RB speed | 9/0 or D-pad down/up light | Xbox X auto light | Esc / Menu exit", 10, WindowY-20)
-}
-
 func printUsage() {
 	fmt.Fprintf(os.Stderr, "go-scout — Moorebot Scout controller\n\n")
 	fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
@@ -172,6 +106,12 @@ Keyboard controls (always available):
   H           return to charging station
   9/0         night vision brightness -/+
   Space       save screenshot
+  R           record video to ~/Movies/Scout
+  G           guard mode (motion, people and pet alerts)
+  Tab / F     clean HUD / full screen
+  ?           show/hide controls
+  M           Robot menu (patrols, guard, camera, recordings, health,
+              obstacle guard, Wi-Fi, reset, phone & tablet)
   Esc         exit
 
 Xbox controller (auto-detected by default):
@@ -179,6 +119,9 @@ Xbox controller (auto-detected by default):
   B or both bumpers stop; Y dock; A screenshot; X auto light
   D-pad up/down brightness; Menu/Start exits
   Center sticks and release buttons after connecting or stopping.
+
+Robot address: pass -host <ip> once, or type it in the window. It is saved
+for next time. SSH defaults to root@<host> with your existing SSH keys.
 
 Use -input-test to check controls without connecting to a robot.
 `)
@@ -191,6 +134,7 @@ func main() {
 		printUsage()
 		return
 	}
+	prepareBundleEnv()
 	applyVideoResolutionPreset(*flagVideoRes)
 	if err := runApplication(); err != nil {
 		log.Print(err)
@@ -587,10 +531,6 @@ func onBatteryStatus(msg *status) {
 	}
 }
 
-func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return WindowX, WindowY
-}
-
 // squashToFloat converts a signed 16 bit integer to a float between -1 and 1
 func squashToFloat(n int) (f float64) {
 	if n < -32767 {
@@ -691,11 +631,11 @@ type Frame struct {
 	Data            []uint8
 }
 
-func saveScreenshot() error {
-	name, err := media.Save(".")
+func saveScreenshot() (string, error) {
+	name, err := media.Save(screenshotDir())
 	if err != nil {
-		return err
+		return "", err
 	}
 	log.Printf("Image saved: %s", name)
-	return nil
+	return name, nil
 }
