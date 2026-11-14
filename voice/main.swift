@@ -49,13 +49,14 @@ final class ScoutAPI: @unchecked Sendable {
         guard !token.isEmpty else { throw APIError(status: 0, message: "no API token") }
         self.token = token
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForRequest = 30
         session = URLSession(configuration: config)
     }
 
-    func request(_ method: String, _ path: String, json: [String: Any]? = nil, body: Data? = nil, contentType: String? = nil) -> URLRequest {
+    func request(_ method: String, _ path: String, json: [String: Any]? = nil, body: Data? = nil, contentType: String? = nil, timeout: TimeInterval = 30) -> URLRequest {
         var req = URLRequest(url: base.appendingPathComponent(path))
         req.httpMethod = method
+        req.timeoutInterval = timeout
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if let json {
             req.httpBody = try? JSONSerialization.data(withJSONObject: json)
@@ -68,8 +69,8 @@ final class ScoutAPI: @unchecked Sendable {
     }
 
     @discardableResult
-    func call(_ method: String, _ path: String, json: [String: Any]? = nil, body: Data? = nil, contentType: String? = nil) async throws -> [String: Any] {
-        let (data, response) = try await session.data(for: request(method, path, json: json, body: body, contentType: contentType))
+    func call(_ method: String, _ path: String, json: [String: Any]? = nil, body: Data? = nil, contentType: String? = nil, timeout: TimeInterval = 30) async throws -> [String: Any] {
+        let (data, response) = try await session.data(for: request(method, path, json: json, body: body, contentType: contentType, timeout: timeout))
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         guard (200..<300).contains(status) else {
@@ -121,7 +122,7 @@ actor Robot {
         }
         goalActive = true
         defer { goalActive = false }
-        return try await api.call("POST", path, json: json)
+        return try await api.call("POST", path, json: json, timeout: 165)
     }
 
     /// API calls that change the robot (docking, lights); skipped in dry runs.
@@ -139,14 +140,14 @@ actor Robot {
         motion = nil
         if dryRun { return }
         // Cancels a running move, turn or patrol in the Mac app as well.
-        try? await api.call("POST", "v1/stop")
+        _ = try? await api.call("POST", "v1/stop")
     }
 
     func say(_ text: String) async {
         Event.emit("speaking", text)
         do {
             let wav = try await Speech16k.synthesize(text)
-            try await api.call("POST", "v1/speaker.wav", body: wav, contentType: "audio/wav")
+            try await api.call("POST", "v1/speaker.wav", body: wav, contentType: "audio/wav", timeout: 90)
         } catch {
             Event.emit("error", "speaker: \(error)")
         }

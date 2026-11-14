@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -31,3 +33,25 @@ func TestLANListenerKeepsAgentAPILocal(t *testing.T) {
 		t.Logf("private address: %s", ip)
 	}
 }
+
+func TestPhoneAddressesCloseLANClosesServersAndListeners(t *testing.T) {
+	ln := fakeListener{}
+	srv := &http.Server{}
+	p := &phoneAddresses{
+		lan:       []string{"http://192.168.1.2:8765/"},
+		listeners: []net.Listener{ln},
+		servers:   []*http.Server{srv},
+	}
+	p.closeLAN()
+	_, lan := p.snapshot()
+	if len(lan) != 0 || len(p.listeners) != 0 || len(p.servers) != 0 {
+		t.Fatalf("closeLAN left state: lan=%v listeners=%d servers=%d", lan, len(p.listeners), len(p.servers))
+	}
+	_ = srv.Shutdown(context.Background())
+}
+
+type fakeListener struct{}
+
+func (fakeListener) Accept() (net.Conn, error) { return nil, net.ErrClosed }
+func (fakeListener) Close() error              { return nil }
+func (fakeListener) Addr() net.Addr            { return &net.TCPAddr{} }

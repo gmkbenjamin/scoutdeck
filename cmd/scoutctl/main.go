@@ -81,7 +81,7 @@ func run() error {
 	input := fs.String("in", "", "speaker WAV input file (mono PCM16 at 16 kHz)")
 	meters := fs.Float64("m", 0, "move: metres forward (negative reverses), up to 3")
 	strafeM := fs.Float64("strafe", 0, "move: metres sideways (positive left), up to 3")
-	speed := fs.Float64("speed", 0, "move: m/s (0.04..0.2 forward, ..0.3 strafe); turn: rad/s (0.35..1.8); 0 = default")
+	speed := fs.Float64("speed", 0, "move: m/s (0.04..0.3 forward, ..0.2 strafe); turn: rad/s (0.35..1.8); 0 = default")
 	degrees := fs.Float64("deg", 0, "turn: degrees, positive left (counter-clockwise), up to 720")
 	name := fs.String("name", "", "patrol: route name; camera: setting name")
 	value := fs.Int("value", -1, "camera: new value for -name")
@@ -137,11 +137,11 @@ func run() error {
 		default:
 			return errors.New("move needs exactly one of -m or -strafe")
 		}
-		timeoutFor = 90 * time.Second
+		timeoutFor = 165 * time.Second
 	case "turn":
 		method = "POST"
 		body, _ = json.Marshal(map[string]any{"degrees": *degrees, "rate": *speed})
-		timeoutFor = 90 * time.Second
+		timeoutFor = 165 * time.Second
 	case "events":
 		path = fmt.Sprintf("/v1/events?limit=%d", *limit)
 	case "guard":

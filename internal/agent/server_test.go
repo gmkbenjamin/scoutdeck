@@ -190,4 +190,31 @@ func TestWebSessionCookie(t *testing.T) {
 	if c := call("POST", "/v1/shutdown", good, map[string]string{"Sec-Fetch-Site": "same-origin"}); c != 403 {
 		t.Fatal("web shutdown", c)
 	}
+
+	// Non-loopback peers cannot spoof X-Forwarded-Host or scheme; loopback proxy peers can.
+	spoof := httptest.NewRequest("POST", "/v1/stop", nil)
+	spoof.RemoteAddr = "192.0.2.50:1234"
+	spoof.AddCookie(&http.Cookie{Name: SessionCookie, Value: good})
+	spoof.Header.Set("Origin", "https://mac.example.ts.net")
+	spoof.Header.Set("X-Forwarded-Host", "mac.example.ts.net")
+	spoof.Header.Set("X-Forwarded-Proto", "https")
+	w := httptest.NewRecorder()
+	a.Handler().ServeHTTP(w, spoof)
+	if w.Code != 403 {
+		t.Fatalf("spoofed forwarded host accepted from remote peer: %d", w.Code)
+	}
+	proxied := spoof.Clone(spoof.Context())
+	proxied.RemoteAddr = "127.0.0.1:54321"
+	w = httptest.NewRecorder()
+	a.Handler().ServeHTTP(w, proxied)
+	if w.Code != 200 {
+		t.Fatalf("loopback tailscale proxy origin rejected: %d", w.Code)
+	}
+	wrongScheme := proxied.Clone(proxied.Context())
+	wrongScheme.Header.Set("Origin", "http://mac.example.ts.net")
+	w = httptest.NewRecorder()
+	a.Handler().ServeHTTP(w, wrongScheme)
+	if w.Code != 403 {
+		t.Fatalf("scheme downgrade accepted: %d", w.Code)
+	}
 }

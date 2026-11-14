@@ -19,11 +19,12 @@ import (
 
 // featureMenu holds data loaded in the background for the newer menu pages.
 type featureMenu struct {
-	mu      sync.Mutex
-	loading bool
-	camera  []CameraSetting
-	recs    []RobotRecording
-	health  map[string]any
+	mu       sync.Mutex
+	loading  bool
+	selReset bool
+	camera   []CameraSetting
+	recs     []RobotRecording
+	health   map[string]any
 }
 
 func (f *featureMenu) busy() bool {
@@ -45,7 +46,7 @@ func (m *robotMenu) load(a *application, status string, fn func(ctx context.Cont
 		m.set(status, false)
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(a.connCtx, 2*time.Minute)
+		ctx, cancel := context.WithTimeout(a.connContext(), 2*time.Minute)
 		defer cancel()
 		err := fn(ctx)
 		f.mu.Lock()
@@ -151,7 +152,7 @@ func (m *robotMenu) updateFeature(g *Game) {
 			r := routes[m.sel-head]
 			switch {
 			case pressed(ebiten.KeyEnter, ebiten.KeyNumpadEnter):
-				if err := a.Patrol(a.connCtx, r.Name); err != nil {
+				if err := a.Patrol(a.connContext(), r.Name); err != nil {
 					m.set(err.Error(), true)
 				} else {
 					m.page = menuClosed
@@ -308,6 +309,10 @@ func (m *robotMenu) updateFeature(g *Game) {
 	case menuRecordings:
 		m.feature.mu.Lock()
 		list := append([]RobotRecording(nil), m.feature.recs...)
+		if m.feature.selReset {
+			m.sel = 0
+			m.feature.selReset = false
+		}
 		m.feature.mu.Unlock()
 		switch {
 		case pressed(ebiten.KeyEscape):
@@ -347,8 +352,8 @@ func (m *robotMenu) updateFeature(g *Game) {
 				list, err := a.RobotRecordings(ctx)
 				m.feature.mu.Lock()
 				m.feature.recs = list
+				m.feature.selReset = true
 				m.feature.mu.Unlock()
-				m.sel = 0
 				return err
 			})
 		}
@@ -491,6 +496,10 @@ func (h *hud) drawFeature(screen *ebiten.Image, g *Game, x, y, pw, ph float64) (
 	case menuRecordings:
 		m.feature.mu.Lock()
 		list := append([]RobotRecording(nil), m.feature.recs...)
+		if m.feature.selReset {
+			m.sel = 0
+			m.feature.selReset = false
+		}
 		m.feature.mu.Unlock()
 		start := max(0, m.sel-6)
 		for i, r := range list {

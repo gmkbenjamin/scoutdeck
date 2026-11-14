@@ -41,9 +41,8 @@ func (a *application) setGuard(g GuardSettings) error {
 	a.settingsMu.Lock()
 	was := a.settings.Guard.Armed
 	a.settings.Guard = g
-	saved := a.settings
 	a.settingsMu.Unlock()
-	if err := saveSettings(saved); err != nil {
+	if err := a.saveSettings(); err != nil {
 		return err
 	}
 	a.guard.mu.Lock()
@@ -64,13 +63,13 @@ func (a *application) setGuard(g GuardSettings) error {
 // syncObjectDetector subscribes to the robot's people/pet detector only
 // while guard mode wants it: the robot runs the model only with a subscriber.
 func (a *application) syncObjectDetector() {
-	g := a.guardSettings()
-	want := g.Armed && g.Objects && a.ready.Load()
 	a.guard.mu.Lock()
 	defer a.guard.mu.Unlock()
+	g := a.guardSettings()
+	want := g.Armed && g.Objects && a.ready.Load()
 	switch {
 	case want && a.guard.objSub == nil:
-		node := n
+		node := rosNode()
 		if node == nil {
 			return
 		}
@@ -180,7 +179,7 @@ func (a *application) watchGuard(ctx context.Context) {
 			continue
 		}
 		owner := a.control.Snapshot().Owner
-		moving := owner != "stopped" && owner != "" || a.dock != nil && a.dock.Active() || a.act.snapshot(a.sensors.tracker.Pose()).Kind != ""
+		moving := owner != "stopped" && owner != "" || a.dockingActive() || a.act.snapshot(a.sensors.tracker.Pose()).Kind != ""
 		a.guard.mu.Lock()
 		a.guard.detector.Sensitivity = g.Sensitivity
 		frac, box := a.guard.detector.Feed(img, moving, time.Now())
@@ -208,16 +207,26 @@ func (a *application) motionBox(now time.Time) *events.Box {
 
 // notifyMac shows a macOS notification. Text goes as osascript arguments,
 // never through a shell or into the script source.
+var notifySlots = make(chan struct{}, 3)
+
 func notifyMac(title, text string) {
 	if runtime.GOOS != "darwin" {
 		return
 	}
-	cmd := exec.Command("osascript",
-		"-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv) sound name \"Glass\"", "-e", "end run",
-		title, text)
-	if err := cmd.Start(); err != nil {
-		log.Printf("notification: %v", err)
+	select {
+	case notifySlots <- struct{}{}:
+	default:
 		return
 	}
-	go func() { _ = cmd.Wait() }()
+	go func() {
+		defer func() { <-notifySlots }()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, "osascript",
+			"-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv) sound name \"Glass\"", "-e", "end run",
+			title, text)
+		if err := cmd.Run(); err != nil && ctx.Err() == nil {
+			log.Printf("notification: %v", err)
+		}
+	}()
 }

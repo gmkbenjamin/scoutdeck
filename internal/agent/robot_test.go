@@ -10,7 +10,16 @@ import (
 )
 
 func TestWriteBCBScriptSetsRecoveryCommandOnly(t *testing.T) {
-	misc := filepath.Join(t.TempDir(), "misc.img")
+	dir := t.TempDir()
+	misc := filepath.Join(dir, "misc.img")
+	// Avoid flushing host APFS volumes in tests when the script invokes sync.
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bin, "sync"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	img := make([]byte, 4<<20)
 	copy(img[0x4344:], "/userdata/ota/update.img") // left by a previous recovery
 	copy(img[0x4000:], "stale-command")
@@ -19,7 +28,7 @@ func TestWriteBCBScriptSetsRecoveryCommandOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("sh", "-c", writeBCBScript)
-	cmd.Env = append(os.Environ(), "MISC="+misc)
+	cmd.Env = append(os.Environ(), "MISC="+misc, "PATH="+bin+":"+os.Getenv("PATH"))
 	out, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "written") {
 		t.Fatalf("%v: %s", err, out)

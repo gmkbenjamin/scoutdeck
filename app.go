@@ -48,7 +48,10 @@ type application struct {
 	serviceMu    sync.Mutex
 	pub          *goroslib.Publisher
 	cancelDetect *goroslib.Publisher
+	dockMu       sync.RWMutex
 	dock         *docking.Manager
+	opMu         sync.Mutex
+	opWG         sync.WaitGroup
 	motionMu     sync.Mutex
 
 	settings   settings
@@ -90,6 +93,38 @@ type application struct {
 	battery     batteryHistory
 	odomMu      sync.Mutex
 	odomSub     *goroslib.Subscriber
+}
+
+func (a *application) dockManager() *docking.Manager {
+	a.dockMu.RLock()
+	defer a.dockMu.RUnlock()
+	return a.dock
+}
+
+func (a *application) setDockManager(d *docking.Manager) {
+	a.dockMu.Lock()
+	a.dock = d
+	a.dockMu.Unlock()
+}
+
+func (a *application) dockingActive() bool {
+	d := a.dockManager()
+	return d != nil && d.Active()
+}
+
+func (a *application) dockingNative() bool {
+	d := a.dockManager()
+	return d != nil && d.NativeActive()
+}
+
+func (a *application) connContext() context.Context {
+	a.connMu.Lock()
+	ctx := a.connCtx
+	a.connMu.Unlock()
+	if ctx != nil {
+		return ctx
+	}
+	return a.ctx
 }
 
 func (a *application) connState() (int, string, target) {
@@ -156,7 +191,7 @@ func (a *application) watchMaster(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		node := n
+		node := rosNode()
 		if node == nil {
 			return
 		}
@@ -290,7 +325,10 @@ func (a *application) connect(t target) error {
 	}
 	*flagROSHostAddress = t.ROS
 	*flagSSH = t.SSH
-	a.connCtx, a.connCancel = context.WithCancel(a.ctx)
+	connCtx, connCancel := context.WithCancel(a.ctx)
+	a.connMu.Lock()
+	a.connCtx, a.connCancel = connCtx, connCancel
+	a.connMu.Unlock()
 	a.lostOnce = &sync.Once{}
 	a.audio = nil
 	if t.SSH != "" {
@@ -303,60 +341,76 @@ func (a *application) connect(t target) error {
 	if err := forceROSHostnameToMasterIP(t.ROS, *flagVerbose); err != nil {
 		return err
 	}
-	var err error
-	n, err = goroslib.NewNode(goroslib.NodeConf{Name: fmt.Sprintf("scout_access_%d", os.Getpid()), MasterAddress: t.ROS, Host: resolveNodeHost(t.ROS, *flaglocalhost)})
+	node, err := goroslib.NewNode(goroslib.NodeConf{Name: fmt.Sprintf("scout_access_%d", os.Getpid()), MasterAddress: t.ROS, Host: resolveNodeHost(t.ROS, *flaglocalhost)})
 	if err != nil {
 		return fmt.Errorf("cannot reach the robot's ROS master at %s: %w", t.ROS, err)
 	}
-	a.pub, err = goroslib.NewPublisher(goroslib.PublisherConf{Node: n, Topic: "/cmd_vel", Msg: &geometry_msgs.Twist{}})
+	setROSNode(node)
+	pub, err := goroslib.NewPublisher(goroslib.PublisherConf{Node: node, Topic: "/cmd_vel", Msg: &geometry_msgs.Twist{}})
 	if err != nil {
 		return err
 	}
-	a.cancelDetect, err = goroslib.NewPublisher(goroslib.PublisherConf{Node: n, Topic: "/AppNode/cancel_detect", Msg: &std_msgs.Int32{}})
+	cancelDetect, err := goroslib.NewPublisher(goroslib.PublisherConf{Node: node, Topic: "/AppNode/cancel_detect", Msg: &std_msgs.Int32{}})
 	if err != nil {
+		_ = pub.Close()
 		return err
 	}
+	a.motionMu.Lock()
+	a.pub, a.cancelDetect = pub, cancelDetect
+	a.motionMu.Unlock()
 	hooks := docking.Hooks{
 		Prepare: func(ctx context.Context) error {
 			if err := a.control.CheckAutonomy(time.Now()); err != nil {
 				return err
 			}
+			a.unsubscribeOdometry()
+			a.setOriginAtDock(false)
 			a.control.Stop()
 			a.motionMu.Lock()
 			defer a.motionMu.Unlock()
 			return a.publishRaw(control.Motion{})
 		},
-		Start:  scoutGoHome,
-		Cancel: a.cancelDockNative,
+		ShouldApproach: a.needsApproach,
+		Approach:       a.approachDock,
+		Start:          scoutGoHome,
+		Cancel:         a.cancelDockNative,
 	}
 	if a.audio != nil {
 		hooks.Probe = a.audio.Power
 	}
-	a.dock = docking.New(a.connCtx, hooks)
+	a.setDockManager(docking.New(connCtx, hooks))
 	if *flagStream == "h264" {
-		h264Dec, err = newH264Decoder()
+		dec, err := newH264Decoder()
 		if err != nil {
 			return err
 		}
+		h264DecPtr.Store(dec)
 		if *flagDumpH264 != "" {
-			h264DumpFile, err = os.Create(*flagDumpH264)
+			f, err := os.Create(*flagDumpH264)
 			if err != nil {
 				return err
 			}
+			h264DumpMu.Lock()
+			h264DumpFile = f
+			h264DumpMu.Unlock()
 		}
 	}
 	a.sensors.night = -1
 	a.sensors.tracker.Reset(time.Now())
 	for _, conf := range append([]goroslib.SubscriberConf{
-		{Node: n, Topic: "/CoreNode/going_home_status", Callback: func(s *std_msgs.Int32) { a.dock.Phase(s.Data) }, QueueSize: 8},
-		{Node: n, Topic: streamTopicFromFlag(*flagStream), Callback: onMessageFrame},
-		{Node: n, Topic: "/SensorNode/simple_battery_status", Callback: onBatteryStatus, QueueSize: 1},
-		{Node: n, Topic: "/CoreNode/aac", Callback: func(f *Frame) {
+		{Node: node, Topic: "/CoreNode/going_home_status", Callback: func(s *std_msgs.Int32) {
+			if d := a.dockManager(); d != nil {
+				d.Phase(s.Data)
+			}
+		}, QueueSize: 8},
+		{Node: node, Topic: streamTopicFromFlag(*flagStream), Callback: onMessageFrame},
+		{Node: node, Topic: "/SensorNode/simple_battery_status", Callback: onBatteryStatus, QueueSize: 1},
+		{Node: node, Topic: "/CoreNode/aac", Callback: func(f *Frame) {
 			if f.Type == Frame_AUDIO_STREAM_AAC {
 				media.Audio(f.Data)
 			}
 		}, QueueSize: 8},
-	}, a.sensorSubscriptions(n)...) {
+	}, a.sensorSubscriptions(node)...) {
 		s, err := goroslib.NewSubscriber(conf)
 		if err != nil {
 			return err
@@ -364,7 +418,7 @@ func (a *application) connect(t target) error {
 		a.subs = append(a.subs, s)
 	}
 	a.done = make(chan struct{})
-	connCtx, done := a.connCtx, a.done
+	done := a.done
 	go func() {
 		t := time.NewTicker(control.Interval)
 		err := a.control.Run(connCtx, t.C, a.publish)
@@ -393,10 +447,9 @@ func (a *application) connect(t target) error {
 	a.settingsMu.Lock()
 	changed := a.settings.Host != t.Host
 	a.settings.Host = t.Host
-	saved := a.settings
 	a.settingsMu.Unlock()
 	if changed {
-		if err := saveSettings(saved); err != nil {
+		if err := a.saveSettings(); err != nil {
 			log.Printf("could not save robot address: %v", err)
 		}
 	}
@@ -424,11 +477,20 @@ func (a *application) startAPI() error {
 	}
 	a.apiToken = token
 	api := &agent.API{Token: token, Control: &a.control, Media: media, Status: a.status, Action: a.action, Shutdown: a.cancel}
-	api.StartDock = func(seconds int) (any, error) { return a.startDock(a.connCtx, time.Duration(seconds)*time.Second) }
-	api.DockStatus = func() any { return a.dock.Snapshot() }
+	api.StartDock = func(seconds int) (any, error) { return a.startDock(a.connContext(), time.Duration(seconds)*time.Second) }
+	api.DockStatus = func() any {
+		if d := a.dockManager(); d != nil {
+			return d.Snapshot()
+		}
+		return docking.Operation{State: "idle"}
+	}
 	api.Stop = a.stopAll
 	api.Drive = func(m control.Motion, ttl time.Duration) error {
-		return a.dock.WhileIdle(func() error { return a.control.Drive(m, ttl, time.Now()) })
+		d := a.dockManager()
+		if d == nil {
+			return fmt.Errorf("robot not connected")
+		}
+		return d.WhileIdle(func() error { return a.control.Drive(m, ttl, time.Now()) })
 	}
 	api.Record = (&agent.Microphone{Media: media}).Record
 	api.Play = func(ctx context.Context, wav []byte) error {
@@ -473,9 +535,8 @@ func (a *application) startAPI() error {
 	if *flagLAN {
 		a.settingsMu.Lock()
 		a.settings.LANAccess = true
-		saved := a.settings
 		a.settingsMu.Unlock()
-		if err := saveSettings(saved); err != nil {
+		if err := a.saveSettings(); err != nil {
 			log.Printf("could not save home Wi-Fi access: %v", err)
 		}
 	}
@@ -488,7 +549,19 @@ func (a *application) startAPI() error {
 func (a *application) disconnect() error {
 	var retErr error
 	a.ready.Store(false)
+	a.connMu.Lock()
+	connCancel := a.connCancel
+	a.connCancel = nil
+	a.connMu.Unlock()
+	if connCancel != nil {
+		connCancel()
+	}
+	// Wait for any in-flight Move/Patrol/startDock entering under opMu to
+	// observe !ready / cancelled connCtx before tearing down docking or ROS.
+	a.opMu.Lock()
+	a.opMu.Unlock()
 	a.act.stop()
+	a.opWG.Wait()
 	a.closeObjectDetector()
 	a.unsubscribeOdometry()
 	if a.rec.status().Active {
@@ -496,16 +569,13 @@ func (a *application) disconnect() error {
 			a.notices.add("Recording saved: "+path, noticeGood)
 		}
 	}
-	if a.dock != nil && a.dock.Active() {
+	if d := a.dockManager(); d != nil && d.Active() {
 		cleanup, stop := context.WithTimeout(context.Background(), 9*time.Second)
-		if err := a.dock.Cancel(cleanup); err != nil {
+		if err := d.Cancel(cleanup); err != nil {
 			log.Printf("docking cancellation failed: %v", err)
 			retErr = err
 		}
 		stop()
-	}
-	if a.connCancel != nil {
-		a.connCancel()
 	}
 	if a.done != nil {
 		<-a.done
@@ -515,31 +585,37 @@ func (a *application) disconnect() error {
 		a.done = nil
 	}
 	// Unblock any camera callback writing to ffmpeg before waiting on subscribers.
-	if h264Dec != nil {
-		h264Dec.Close()
-		h264Dec = nil
+	if dec := h264DecPtr.Swap(nil); dec != nil {
+		dec.Close()
 	}
 	for _, s := range a.subs {
 		_ = s.Close()
 	}
 	a.subs = nil
+	h264DumpMu.Lock()
 	if h264DumpFile != nil {
 		_ = h264DumpFile.Close()
 		h264DumpFile = nil
 	}
-	if a.pub != nil {
-		_ = a.pub.Close()
-		a.pub = nil
+	h264DumpMu.Unlock()
+	a.motionMu.Lock()
+	pub, cancelDetect := a.pub, a.cancelDetect
+	a.pub, a.cancelDetect = nil, nil
+	a.motionMu.Unlock()
+	if pub != nil {
+		_ = pub.Close()
 	}
-	if a.cancelDetect != nil {
-		_ = a.cancelDetect.Close()
-		a.cancelDetect = nil
+	if cancelDetect != nil {
+		_ = cancelDetect.Close()
 	}
-	if n != nil {
-		_ = n.Close()
-		n = nil
+	nodeMu.Lock()
+	node := n
+	n = nil
+	nodeMu.Unlock()
+	if node != nil {
+		_ = node.Close()
 	}
-	a.dock = nil
+	a.setDockManager(nil)
 	return retErr
 }
 
@@ -549,15 +625,16 @@ func (a *application) publish(m control.Motion) error {
 	if o := a.control.Sending(); o == "manual" || o == "manual-stop" {
 		a.humanAt.Store(time.Now().UnixNano())
 	}
-	docking := a.dock != nil && a.dock.Active()
-	a.sensors.tracker.External(docking)
-	if docking {
+	d := a.dockManager()
+	nativeDocking := d != nil && d.NativeActive()
+	a.sensors.tracker.External(nativeDocking)
+	if nativeDocking {
 		if m != (control.Motion{}) {
 			a.control.Stop()
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 9*time.Second)
 				defer cancel()
-				if err := a.dock.Cancel(ctx); err != nil {
+				if err := d.Cancel(ctx); err != nil {
 					log.Printf("manual docking override failed: %v", err)
 				}
 			}()
@@ -591,7 +668,20 @@ func (a *application) guardForward() bool {
 	return !a.settings.ObstacleGuardOff
 }
 
+func (a *application) writeCancelDetect(ctx context.Context) error {
+	a.motionMu.Lock()
+	pub := a.cancelDetect
+	a.motionMu.Unlock()
+	if pub == nil {
+		return fmt.Errorf("not connected to the robot")
+	}
+	return pub.WriteSync(ctx, &std_msgs.Int32{Data: 1})
+}
+
 func (a *application) publishRaw(m control.Motion) error {
+	if a.pub == nil {
+		return fmt.Errorf("not connected to the robot")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if *flagVerbose {
@@ -611,12 +701,8 @@ func (a *application) action(parent context.Context, name string, value int) err
 	defer stop()
 	switch name {
 	case "home":
-		go func() {
-			if _, err := a.startDock(a.connCtx, 300*time.Second); err != nil {
-				a.notices.add("Docking: "+err.Error(), noticeBad)
-			}
-		}()
-		return nil
+		_, err := a.startDock(a.connContext(), 300*time.Second)
+		return err
 	case "light":
 		return turnOnLight(ctx, int32(value))
 	default:
@@ -631,9 +717,9 @@ func (a *application) status() any {
 	f := media.Frame()
 	var dock any
 	ctrl := a.control.Snapshot()
-	if a.dock != nil {
-		dock = a.dock.Snapshot()
-		if a.dock.Active() {
+	if d := a.dockManager(); d != nil {
+		dock = d.Snapshot()
+		if d.Active() {
 			ctrl.Owner = "docking"
 		}
 	}
@@ -684,8 +770,8 @@ func (a *application) watchDockOrigin(ctx context.Context) {
 	last, retried, crashed := "", false, ""
 	var lastCancel time.Time
 	cancelTries := 0
-	if a.dock != nil {
-		last = a.dock.Snapshot().ID
+	if d := a.dockManager(); d != nil {
+		last = d.Snapshot().ID
 	}
 	decided, started := false, time.Now()
 	a.setOriginAtDock(false)
@@ -695,7 +781,8 @@ func (a *application) watchDockOrigin(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		if a.dock == nil {
+		d := a.dockManager()
+		if d == nil {
 			continue
 		}
 		// The map origin is the dock if the robot was charging when tracking started.
@@ -713,13 +800,13 @@ func (a *application) watchDockOrigin(ctx context.Context) {
 				decided = true // no fresh reading: don't guess
 			}
 		}
-		op := a.dock.Snapshot()
-		if op.Active {
+		op := d.Snapshot()
+		if op.Active && op.State != "approaching" {
 			// See subscribeOdometry. Positions are unknown while the firmware
 			// drives, so the map can't locate the dock until docking succeeds.
 			a.unsubscribeOdometry()
 			a.setOriginAtDock(false)
-		} else {
+		} else if !op.Active {
 			a.subscribeOdometry()
 		}
 		// The firmware's camera node can crash mid-docking and come back a
@@ -728,7 +815,7 @@ func (a *application) watchDockOrigin(ctx context.Context) {
 		if op.Active && op.State == "cancel_failed" && time.Since(lastCancel) >= 5*time.Second && cancelTries < 12 {
 			lastCancel, cancelTries = time.Now(), cancelTries+1
 			call, done := context.WithTimeout(ctx, 8*time.Second)
-			if err := a.dock.Cancel(call); err == nil {
+			if err := d.Cancel(call); err == nil {
 				log.Printf("docking: cancellation confirmed after a firmware restart")
 				crashed = op.ID
 			}

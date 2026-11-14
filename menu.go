@@ -152,7 +152,7 @@ func (m *robotMenu) scan(a *application) {
 	m.scanning, m.status, m.bad = true, "Scanning from the robot…", false
 	m.mu.Unlock()
 	go func() {
-		nets, err := scanWiFi(a.connCtx)
+		nets, err := scanWiFi(a.connContext())
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		m.scanning = false
@@ -307,7 +307,6 @@ func (m *robotMenu) update(g *Game) bool {
 		m.mu.Lock()
 		pa, checking := m.phone, m.checking
 		m.mu.Unlock()
-		local := "http://" + *flagAPI + "/#pair=" + a.apiToken
 		switch {
 		case pressed(ebiten.KeyEscape):
 			m.page, m.sel = menuMain, miPhone
@@ -350,7 +349,13 @@ func (m *robotMenu) update(g *Game) bool {
 				m.set("Home Wi-Fi access off", false)
 			}
 		case pressed(ebiten.KeyB):
-			if err := exec.Command("open", local).Start(); err != nil {
+			code, err := a.codes.New()
+			if err != nil {
+				m.set(err.Error(), true)
+				break
+			}
+			url := "http://" + *flagAPI + "/#pair=" + code
+			if err := exec.Command("open", url).Start(); err != nil {
 				m.set(err.Error(), true)
 			}
 		case pressed(ebiten.KeyC):
@@ -393,7 +398,7 @@ func (m *robotMenu) update(g *Game) bool {
 func (m *robotMenu) applyWiFi(a *application, ssid, key string) {
 	m.set("Saving Wi-Fi settings on the robot…", false)
 	go func() {
-		ctx, cancel := context.WithTimeout(a.connCtx, 40*time.Second)
+		ctx, cancel := context.WithTimeout(a.connContext(), 40*time.Second)
 		defer cancel()
 		if err := a.stopAll(ctx); err != nil {
 			log.Printf("stop before Wi-Fi change: %v", err)
@@ -417,7 +422,7 @@ func (m *robotMenu) resetSettings(g *Game) {
 	a := g.app
 	m.set("Resetting robot settings…", false)
 	go func() {
-		ctx, cancel := context.WithTimeout(a.connCtx, 30*time.Second)
+		ctx, cancel := context.WithTimeout(a.connContext(), 30*time.Second)
 		defer cancel()
 		ssid, err := a.audio.HotspotSSID(ctx)
 		if err != nil {
@@ -464,7 +469,7 @@ func (m *robotMenu) checkRestore(a *application) {
 	m.status, m.bad = "Checking the robot…", false
 	m.mu.Unlock()
 	go func() {
-		ctx, cancel := context.WithTimeout(a.connCtx, 30*time.Second)
+		ctx, cancel := context.WithTimeout(a.connContext(), 30*time.Second)
 		defer cancel()
 		checks, err := a.audio.RestorePreflight(ctx)
 		m.mu.Lock()
@@ -484,7 +489,7 @@ func (m *robotMenu) checkRestore(a *application) {
 func (m *robotMenu) factoryRestore(a *application) {
 	m.set("Starting factory restore…", false)
 	go func() {
-		ctx, cancel := context.WithTimeout(a.connCtx, 60*time.Second)
+		ctx, cancel := context.WithTimeout(a.connContext(), 60*time.Second)
 		defer cancel()
 		ssid, err := a.audio.HotspotSSID(ctx)
 		if err != nil {

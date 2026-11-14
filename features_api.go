@@ -372,9 +372,8 @@ func (a *application) manualObstacleGuard() bool {
 func (a *application) setManualObstacleGuard(on bool) error {
 	a.settingsMu.Lock()
 	a.settings.ObstacleGuardOff = !on
-	saved := a.settings
 	a.settingsMu.Unlock()
-	return saveSettings(saved)
+	return a.saveSettings()
 }
 
 // Say speaks text through the robot's speaker using the Mac's voice.

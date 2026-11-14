@@ -44,23 +44,37 @@ var (
 	flagControlScheme  = flag.String("c", "auto", "controls: auto (keyboard + gamepad), keyboard, or gamepad (joystick alias)")
 	flagVerbose        = flag.Bool("v", false, "verbose")
 	n                  *goroslib.Node
+	nodeMu             sync.RWMutex
 	err                error
 	lastCameraFeed     *ebiten.Image
 	batteryPercent     = -1
 	batteryChargeState = -1
-	h264Dec            *h264Decoder
+	h264DecPtr         atomic.Pointer[h264Decoder]
 	lastH264FrameUnixN int64
 	lastH264PacketUnix int64
 	h264NoFrameWarned  uint32
 	h264ParamMu        sync.Mutex
 	h264SPS            []byte
 	h264PPS            []byte
+	h264DumpMu         sync.Mutex
 	h264DumpFile       *os.File
 	media              = &control.Media{}
 	batteryMu          sync.RWMutex
 	batteryAt          time.Time
 	showHelp           bool
 )
+
+func rosNode() *goroslib.Node {
+	nodeMu.RLock()
+	defer nodeMu.RUnlock()
+	return n
+}
+
+func setROSNode(node *goroslib.Node) {
+	nodeMu.Lock()
+	n = node
+	nodeMu.Unlock()
+}
 
 func init() {
 	flag.BoolVar(&showHelp, "h", false, "show help message and exit")
@@ -313,7 +327,8 @@ func onMessageFrame(msg *Frame) {
 
 		atomic.StoreInt64(&lastH264PacketUnix, time.Now().UnixNano())
 		atomic.StoreUint32(&h264NoFrameWarned, 0)
-		if h264Dec == nil {
+		dec := h264DecPtr.Load()
+		if dec == nil {
 			enableH264Fallback("h264 decoder unavailable")
 			return
 		}
@@ -325,13 +340,15 @@ func onMessageFrame(msg *Frame) {
 			return
 		}
 
+		h264DumpMu.Lock()
 		if h264DumpFile != nil {
 			if _, err := h264DumpFile.Write(payload); err != nil && *flagVerbose {
 				log.Printf("warning: failed to write h264 dump: %v", err)
 			}
 		}
+		h264DumpMu.Unlock()
 
-		if err := h264Dec.Write(payload); err != nil {
+		if err := dec.Write(payload); err != nil {
 			log.Printf("warning: h264 decode write error: %v", err)
 			enableH264Fallback("h264 decode write failure")
 		}

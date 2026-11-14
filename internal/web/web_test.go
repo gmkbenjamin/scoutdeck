@@ -13,8 +13,11 @@ import (
 func TestPairingSetsSessionOnlyForTheRightToken(t *testing.T) {
 	api := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(299) })
 	h := Handler("secret-token-0123456789abcdef0123456789", nil, api)
-	post := func(body string, hdr map[string]string) *httptest.ResponseRecorder {
+	post := func(body string, hdr map[string]string, remote string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("POST", "/web/pair", strings.NewReader(body))
+		if remote != "" {
+			r.RemoteAddr = remote
+		}
 		r.Header.Set("Content-Type", "application/json")
 		for k, v := range hdr {
 			r.Header.Set(k, v)
@@ -24,13 +27,16 @@ func TestPairingSetsSessionOnlyForTheRightToken(t *testing.T) {
 		return w
 	}
 	same := map[string]string{"Sec-Fetch-Site": "same-origin", "X-Forwarded-Proto": "https"}
-	if w := post(`{"token":"wrong"}`, same); w.Code != 401 || len(w.Result().Cookies()) != 0 {
+	if w := post(`{"token":"wrong"}`, same, "127.0.0.1:1234"); w.Code != 401 || len(w.Result().Cookies()) != 0 {
 		t.Fatal("wrong token", w.Code)
 	}
-	if w := post(`{"token":"secret-token-0123456789abcdef0123456789"}`, map[string]string{"Sec-Fetch-Site": "cross-site"}); w.Code != 403 {
+	if w := post(`{"token":"secret-token-0123456789abcdef0123456789"}`, map[string]string{"Sec-Fetch-Site": "cross-site"}, "127.0.0.1:1234"); w.Code != 403 {
 		t.Fatal("cross-site pairing", w.Code)
 	}
-	w := post(`{"token":"secret-token-0123456789abcdef0123456789"}`, same)
+	if w := post(`{"token":"secret-token-0123456789abcdef0123456789"}`, same, "192.0.2.10:1234"); w.Code != 204 || len(w.Result().Cookies()) != 1 || w.Result().Cookies()[0].Secure {
+		t.Fatal("non-loopback peer must not be able to spoof X-Forwarded-Proto")
+	}
+	w := post(`{"token":"secret-token-0123456789abcdef0123456789"}`, same, "127.0.0.1:1234")
 	if w.Code != 204 {
 		t.Fatal("pair", w.Code)
 	}

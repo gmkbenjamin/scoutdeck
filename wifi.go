@@ -58,10 +58,11 @@ type wifiSwitchService struct {
 const wifiModeStation = 0
 
 func callService(ctx context.Context, name string, srv, req, res any) error {
-	if n == nil {
+	node := rosNode()
+	if node == nil {
 		return fmt.Errorf("not connected to the robot")
 	}
-	cl, err := goroslib.NewServiceClient(goroslib.ServiceClientConf{Node: n, Name: name, Srv: srv})
+	cl, err := goroslib.NewServiceClient(goroslib.ServiceClientConf{Node: node, Name: name, Srv: srv})
 	if err != nil {
 		return err
 	}

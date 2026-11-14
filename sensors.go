@@ -133,7 +133,10 @@ func (a *application) sensorSubscriptions(node *goroslib.Node) []goroslib.Subscr
 func (a *application) subscribeOdometry() {
 	a.odomMu.Lock()
 	defer a.odomMu.Unlock()
-	node := n
+	if !a.ready.Load() {
+		return
+	}
+	node := rosNode()
 	if a.odomSub != nil || node == nil {
 		return
 	}

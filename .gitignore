@@ -2,8 +2,8 @@
 /dist/
 /bin/
 /build/
-scout
-scoutctl
+/scout
+/scoutctl
 *.exe
 *.test
 *.out

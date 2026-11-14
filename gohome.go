@@ -23,12 +23,13 @@ type goHomeService struct {
 
 // Start the firmware's QR search, alignment and reverse docking sequence.
 func scoutGoHome(ctx context.Context) error {
-	if n == nil {
+	node := rosNode()
+	if node == nil {
 		return fmt.Errorf("ros node is not initialized")
 	}
 
 	cl, err := goroslib.NewServiceClient(goroslib.ServiceClientConf{
-		Node: n,
+		Node: node,
 		Name: "/nav_low_bat",
 		Srv: &goHomeService{
 			Request: goHomeRequest{},

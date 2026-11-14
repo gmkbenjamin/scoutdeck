@@ -192,3 +192,156 @@ func TestTimeoutAllowsSlowFirmware(t *testing.T) {
 	}
 	_ = m.Cancel(context.Background())
 }
+
+func TestApproachPhaseTransitionsAndReleases(t *testing.T) {
+	m, starts, cancels, power := fixture(context.Background())
+	inApproach := make(chan struct{})
+	releaseApproach := make(chan struct{})
+	m.hooks.ShouldApproach = func() bool { return true }
+	m.hooks.Approach = func(ctx context.Context) error {
+		if m.NativeActive() {
+			t.Error("NativeActive during approach")
+		}
+		if err := m.WhileIdle(func() error { return nil }); err == nil {
+			t.Error("WhileIdle succeeded during approach")
+		}
+		if err := m.WhileApproaching(func() error { return nil }); err != nil {
+			t.Errorf("WhileApproaching failed: %v", err)
+		}
+		close(inApproach)
+		select {
+		case <-releaseApproach:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	op, err := m.Start(10 * time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.State != "approaching" || !op.Active {
+		t.Fatalf("Start blocked or wrong initial state: %+v", op)
+	}
+	<-inApproach
+	close(releaseApproach)
+	await(t, func() bool { return starts.Load() == 1 && m.NativeActive() })
+	power.Store(true)
+	await(t, func() bool { return !m.Active() })
+	if op := m.Snapshot(); op.State != "charging" || !op.ChargingVerified || cancels.Load() != 1 {
+		t.Fatalf("final op %+v cancels=%d", op, cancels.Load())
+	}
+}
+
+func TestCancelDuringApproachDoesNotCallNativeCancel(t *testing.T) {
+	m, starts, cancels, _ := fixture(context.Background())
+	inApproach := make(chan struct{})
+	m.hooks.ShouldApproach = func() bool { return true }
+	m.hooks.Cancel = func(context.Context) error {
+		cancels.Add(1)
+		return errors.New("should not call native cancel before native start")
+	}
+	m.hooks.Approach = func(ctx context.Context) error {
+		close(inApproach)
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	if _, err := m.Start(10 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	<-inApproach
+	if err := m.Cancel(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if op := m.Snapshot(); op.State != "cancelled" || op.Active || starts.Load() != 0 || cancels.Load() != 0 {
+		t.Fatalf("unexpected state: %+v starts=%d cancels=%d", op, starts.Load(), cancels.Load())
+	}
+}
+
+func TestContextCancelAndTimeoutDuringPrepareAndProbe(t *testing.T) {
+	t.Run("cancel_in_prepare", func(t *testing.T) {
+		m, starts, cancels, _ := fixture(context.Background())
+		inPrepare := make(chan struct{})
+		m.hooks.Prepare = func(ctx context.Context) error {
+			close(inPrepare)
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		if _, err := m.Start(10 * time.Second); err != nil {
+			t.Fatal(err)
+		}
+		<-inPrepare
+		if err := m.Cancel(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if op := m.Snapshot(); op.State != "cancelled" || op.Active || starts.Load() != 0 || cancels.Load() != 0 {
+			t.Fatalf("unexpected state: %+v starts=%d cancels=%d", op, starts.Load(), cancels.Load())
+		}
+	})
+
+	t.Run("cancel_in_initial_probe", func(t *testing.T) {
+		m, starts, cancels, _ := fixture(context.Background())
+		inProbe := make(chan struct{})
+		m.hooks.Probe = func(ctx context.Context) (Power, error) {
+			close(inProbe)
+			<-ctx.Done()
+			return Power{}, ctx.Err()
+		}
+		if _, err := m.Start(10 * time.Second); err != nil {
+			t.Fatal(err)
+		}
+		<-inProbe
+		if err := m.Cancel(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if op := m.Snapshot(); op.State != "cancelled" || op.Active || starts.Load() != 0 || cancels.Load() != 0 {
+			t.Fatalf("unexpected state: %+v starts=%d cancels=%d", op, starts.Load(), cancels.Load())
+		}
+	})
+
+	t.Run("timeout_in_initial_probe", func(t *testing.T) {
+		pctx, pcancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer pcancel()
+		pm, pstarts, pcancels, _ := fixture(pctx)
+		pm.hooks.Probe = func(ctx context.Context) (Power, error) {
+			<-ctx.Done()
+			return Power{}, ctx.Err()
+		}
+		if _, err := pm.Start(10 * time.Second); err != nil {
+			t.Fatal(err)
+		}
+		await(t, func() bool { return !pm.Active() })
+		if op := pm.Snapshot(); op.State != "timed_out" || op.Active || pstarts.Load() != 0 || pcancels.Load() != 0 {
+			t.Fatalf("unexpected timeout state: %+v starts=%d cancels=%d", op, pstarts.Load(), pcancels.Load())
+		}
+	})
+
+	t.Run("cancel_in_deferred_startNative", func(t *testing.T) {
+		m, starts, cancels, power := fixture(context.Background())
+		power.Store(true)
+		inStart := make(chan struct{})
+		probes := 0
+		m.hooks.Probe = func(context.Context) (Power, error) {
+			probes++
+			// Initial probe looks connected so native start is deferred to the polling loop;
+			// the second probe drops power so startNative runs in the polling branch.
+			return Power{Connected: probes == 1}, nil
+		}
+		m.hooks.Start = func(ctx context.Context) error {
+			starts.Add(1)
+			close(inStart)
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		if _, err := m.Start(10 * time.Second); err != nil {
+			t.Fatal(err)
+		}
+		<-inStart
+		if err := m.Cancel(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if op := m.Snapshot(); op.State != "cancelled" || op.Active || starts.Load() != 1 || cancels.Load() != 1 {
+			t.Fatalf("unexpected deferred cancel state: %+v starts=%d cancels=%d", op, starts.Load(), cancels.Load())
+		}
+	})
+}

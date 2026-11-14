@@ -194,14 +194,14 @@ $("video").addEventListener("error", () => {
 // ---------- Driving ----------
 function currentMotion() {
   const k = state.keys;
-  const kx = (k.has("w") || k.has("arrowup") ? 1 : 0) - (k.has("s") || k.has("arrowdown") ? 1 : 0);
+  const kf = (k.has("w") || k.has("arrowup") ? 1 : 0) - (k.has("s") || k.has("arrowdown") ? 1 : 0);
   const kz = (k.has("a") || k.has("arrowleft") ? 1 : 0) - (k.has("d") || k.has("arrowright") ? 1 : 0);
-  const ky = (k.has("q") ? 1 : 0) - (k.has("e") ? 1 : 0);
+  const kx = (k.has("e") ? 1 : 0) - (k.has("q") ? 1 : 0);
   const pick = (...v) => v.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
   const f = SPEEDS[state.speed] ?? SPEEDS[1];
-  const x = pick(kx, state.joy.y, state.pad.x);
+  const x = pick(kx, state.strafe, state.pad.x);
+  const y = pick(kf, state.joy.y, state.pad.y);
   const z = pick(kz, -state.joy.x, state.pad.z);
-  const y = pick(ky, -state.strafe, state.pad.y);
   const r = (v) => Math.round(v * 1000) / 1000;
   return { linear_x: r(x * LIMITS.x * f), linear_y: r(y * LIMITS.y * f), angular_z: r(z * LIMITS.z * f) };
 }
@@ -404,7 +404,7 @@ function pollGamepad() {
   $("padName").textContent = p ? "🎮 " + p.id.replace(/\(.*\)/, "").trim() : "";
   if (p) {
     const dz = (v) => (Math.abs(v) < 0.15 ? 0 : (v - Math.sign(v) * 0.15) / 0.85);
-    state.pad = { x: dz(-p.axes[1]), z: dz(-p.axes[0]), y: dz(-p.axes[2]) };
+    state.pad = { x: dz(p.axes[2]), y: dz(-p.axes[1]), z: dz(-p.axes[0]) };
     const pressed = p.buttons.map((b) => b.pressed);
     const edge = (i) => pressed[i] && !padButtons[i];
     if (edge(1) || (pressed[4] && pressed[5] && (edge(4) || edge(5)))) stopAll();

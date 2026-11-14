@@ -46,6 +46,10 @@ else:
 for path, package in [(app, '.'), (cli, './cmd/scoutctl')]:
     subprocess.run(['go', 'build', '-trimpath', '-buildvcs=false', '-o', str(path), package],
                    cwd=root, env=env, check=True)
+if args.os == 'darwin':
+    bundled_cli = app.parent / 'scoutctl'
+    shutil.copyfile(cli, bundled_cli)
+    bundled_cli.chmod(0o755)
 if args.os == 'darwin' and args.arch == 'arm64':
     # On-device voice assistant (Apple Intelligence needs Apple silicon and macOS 26+).
     subprocess.run(['swiftc', '-O', '-parse-as-library', '-target', 'arm64-apple-macos26.0',

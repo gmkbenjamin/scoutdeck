@@ -58,7 +58,7 @@ func Handler(token string, codes *OneTimeCodes, api http.Handler) http.Handler {
 }
 
 func secure(r *http.Request) bool {
-	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	return r.TLS != nil || (agent.IsLoopback(r.RemoteAddr) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
 }
 
 func pair(w http.ResponseWriter, r *http.Request, token string, codes *OneTimeCodes) {

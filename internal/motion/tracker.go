@@ -27,6 +27,12 @@ type Pose struct {
 	At       time.Time `json:"at"`
 }
 
+// bodyVel is a body-frame velocity in standard forward/left coordinates (m/s).
+type bodyVel struct {
+	X float64 // forward (+) / back (-)
+	Y float64 // left (+) / right (-)
+}
+
 // Tracker integrates the gyro for heading and wheel odometry (or, until
 // odometry has proved itself, the commanded velocity) for translation.
 type Tracker struct {
@@ -39,9 +45,9 @@ type Tracker struct {
 	biasN     int
 	still     time.Time // when commanded motion last became zero
 	moving    bool
-	cmd       control.Motion
+	cmd       bodyVel
 	cmdAt     time.Time
-	odom      control.Motion // latest body-frame velocity from odometry
+	odom      bodyVel // latest body-frame velocity from odometry
 	odomAt    time.Time
 	odomValid bool // odometry has reported motion while commanded to move
 	transAt   time.Time
@@ -72,6 +78,7 @@ func (t *Tracker) Reset(now time.Time) {
 }
 
 // Command records the velocity sent to the robot.
+// Scout's Motion maps Y to forward/back and X to strafe right/left.
 func (t *Tracker) Command(m control.Motion, now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -80,7 +87,7 @@ func (t *Tracker) Command(m control.Motion, now time.Time) {
 	if !moving && t.moving {
 		t.still = now
 	}
-	t.moving, t.cmd, t.cmdAt = moving, m, now
+	t.moving, t.cmd, t.cmdAt = moving, bodyVel{X: m.Y, Y: -m.X}, now
 }
 
 // Gyro integrates one IMU angular-velocity sample (rad/s about +Z).
@@ -119,7 +126,7 @@ func (t *Tracker) Odometry(vx, vy float64, now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.integrate(now)
-	t.odom, t.odomAt = control.Motion{X: vx, Y: vy}, now
+	t.odom, t.odomAt = bodyVel{X: vx, Y: vy}, now
 	if t.moving && (math.Abs(vx) > 0.01 || math.Abs(vy) > 0.01) {
 		t.odomValid = true
 	}
@@ -145,7 +152,7 @@ func (t *Tracker) integrate(now time.Time) {
 	if t.odomValid && now.Sub(t.odomAt) < odomFresh {
 		v, t.pose.Source = t.odom, "odometry"
 	} else if !t.moving {
-		v = control.Motion{}
+		v = bodyVel{}
 	}
 	if v.X == 0 && v.Y == 0 {
 		return

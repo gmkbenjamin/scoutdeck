@@ -102,11 +102,11 @@ and "stop" works without the wake word while the robot is moving.
 `scout-voice` (Swift, built into `Scout.app`; source in `voice/main.swift`) runs
 entirely on this Mac: it streams the robot's microphone (`/v1/microphone.pcm`),
 transcribes with Apple's SpeechAnalyzer, handles common commands directly, asks
-Apple's on-device foundation model (with move, turn, stop, dock, light and status
-tools) for everything else, and speaks the reply through the robot's speaker. It
-acts only through the agent API, so speed limits, short drive leases and manual
-priority still apply. Movement is open-loop (timed), so distances and angles are
-approximate. Requires Apple silicon, macOS 26 or later with Apple Intelligence on,
+Apple's on-device foundation model (with move, turn, stop, dock, light, status,
+patrol, guard and record tools) for everything else, and speaks the reply through
+the robot's speaker. It acts only through the agent API, so speed limits, short
+drive leases, manual priority and the obstacle guard still apply. Named move and
+turn goals use closed-loop gyro and odometry feedback. Requires Apple silicon, macOS 26 or later with Apple Intelligence on,
 and SSH for the speaker. Use `--source mac` to listen through the Mac's microphone,
 and `--text "…" --dry-run` to test commands without moving the robot.
 

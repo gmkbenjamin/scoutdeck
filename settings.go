@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 var flagHost = flag.String("host", "", "robot hostname or IP; saved for next time (ROS on :11311, SSH as root@host)")
@@ -119,23 +120,56 @@ func loadSettings() settings {
 	return s
 }
 
+var settingsSaveMu sync.Mutex
+
+func (a *application) saveSettings() error {
+	settingsSaveMu.Lock()
+	defer settingsSaveMu.Unlock()
+	a.settingsMu.Lock()
+	s := a.settings
+	a.settingsMu.Unlock()
+	return saveSettingsLocked(s)
+}
+
 func saveSettings(s settings) error {
+	settingsSaveMu.Lock()
+	defer settingsSaveMu.Unlock()
+	return saveSettingsLocked(s)
+}
+
+func saveSettingsLocked(s settings) error {
 	path, err := settingsPath()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, append(data, '\n'), 0o600); err != nil {
+	f, err := os.CreateTemp(dir, "settings-*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	tmp := f.Name()
+	_, werr := f.Write(append(data, '\n'))
+	cerr := f.Close()
+	if werr != nil {
+		_ = os.Remove(tmp)
+		return werr
+	}
+	if cerr != nil {
+		_ = os.Remove(tmp)
+		return cerr
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // target describes how to reach one robot.

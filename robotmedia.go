@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -76,7 +77,7 @@ func (a *application) reconfigure(ctx context.Context, ints []drInt) ([]CameraSe
 	if !a.ready.Load() {
 		return nil, fmt.Errorf("robot not connected")
 	}
-	if a.dock != nil && a.dock.Active() {
+	if a.dockingActive() {
 		return nil, fmt.Errorf("camera settings are unavailable while docking")
 	}
 	var res reconfigureRes
@@ -193,7 +194,7 @@ func (a *application) DownloadRobotRecording(ctx context.Context, id, dir string
 	if err != nil {
 		return "", err
 	}
-	dst := filepath.Join(dir, "robot-"+filepath.Base(path))
+	base := "robot-" + filepath.Base(path)
 	f, err := os.CreateTemp(dir, ".scout-download-*")
 	if err != nil {
 		return "", err
@@ -206,14 +207,41 @@ func (a *application) DownloadRobotRecording(ctx context.Context, id, dir string
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
+	var dst string
 	if err == nil {
-		err = os.Rename(f.Name(), dst)
+		dst, err = linkUniqueFile(f.Name(), dir, base)
 	}
+	_ = os.Remove(f.Name())
 	if err != nil {
-		_ = os.Remove(f.Name())
 		return "", err
 	}
 	return dst, nil
+}
+
+// linkUniqueFile moves src into dir using base or base-N before its extension,
+// without overwriting any existing download.
+func linkUniqueFile(src, dir, base string) (string, error) {
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	for i := 0; i < 1000; i++ {
+		name := base
+		if i > 0 {
+			name = fmt.Sprintf("%s-%d%s", stem, i, ext)
+		}
+		dst := filepath.Join(dir, name)
+		err := os.Link(src, dst)
+		if err == nil {
+			return dst, nil
+		}
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		// Fallback for filesystems without hardlinks, only if unused.
+		if _, statErr := os.Lstat(dst); errors.Is(statErr, os.ErrNotExist) {
+			return dst, os.Rename(src, dst)
+		}
+	}
+	return "", fmt.Errorf("too many copies of %s", base)
 }
 
 // ---------- Night mode and battery history ----------
@@ -279,7 +307,12 @@ func (b *batteryHistory) rewrite() {
 		sb.Write(data)
 		sb.WriteByte('\n')
 	}
-	_ = os.WriteFile(path, []byte(sb.String()), 0o600)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(sb.String()), 0o600); err == nil {
+		if err := os.Rename(tmp, path); err != nil {
+			_ = os.Remove(tmp)
+		}
+	}
 }
 
 func (b *batteryHistory) add(s batterySample) {
@@ -329,7 +362,7 @@ func (a *application) watchRobot(ctx context.Context) {
 		// night_get is served by the firmware's camera node, which also runs
 		// docking. Ask only while it is idle, and rarely: the node crashed
 		// twice in testing while aligning to the dock with this call in flight.
-		docking := a.dock != nil && a.dock.Active()
+		docking := a.dockingActive()
 		if !docking && a.act.snapshot(motion.Pose{}).Kind == "" && time.Since(lastNight) >= time.Minute {
 			lastNight = time.Now()
 			var night nightGetRes

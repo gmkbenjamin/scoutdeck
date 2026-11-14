@@ -40,9 +40,9 @@ func (g *Goal) Validate() error {
 		if g.Target == 0 || math.Abs(g.Target) > MaxDistance {
 			return fmt.Errorf("distance must be non-zero and at most %.1f m", MaxDistance)
 		}
-		limit := 0.2
+		limit := 0.3
 		if g.Kind == Strafe {
-			limit = 0.3
+			limit = 0.2
 		}
 		if g.Speed == 0 {
 			g.Speed = 0.15
@@ -164,9 +164,9 @@ func (m *Mover) Step(p Pose, r Range, now time.Time) (cmd control.Motion, done b
 	v := speed * sign
 	switch g.Kind {
 	case Drive:
-		cmd.X = v
-	case Strafe:
 		cmd.Y = v
+	case Strafe:
+		cmd.X = -v
 	case Turn:
 		cmd.Z = v
 	}

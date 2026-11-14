@@ -23,12 +23,13 @@ type adjustLightService struct {
 
 // call the /CoreNode/adjust_light service with a value of 1 to turn on the light
 func turnOnLight(ctx context.Context, lightValue int32) error {
-	if n == nil {
+	node := rosNode()
+	if node == nil {
 		return fmt.Errorf("ros node is not initialized")
 	}
 
 	cl, err := goroslib.NewServiceClient(goroslib.ServiceClientConf{
-		Node: n,
+		Node: node,
 		Name: "/CoreNode/adjust_light",
 		Srv: &adjustLightService{
 			Request: adjustLightRequest{Cmd: lightValue},

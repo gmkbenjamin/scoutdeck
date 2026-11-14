@@ -67,6 +67,7 @@ func (ac *activity) end(r *motion.Result) {
 		ac.cancel()
 	}
 	ac.kind, ac.label, ac.mover, ac.cancel = "", "", nil, nil
+	ac.route, ac.step, ac.steps = "", 0, 0
 	if r != nil {
 		ac.last, ac.lastAt = r, time.Now()
 	}
@@ -92,9 +93,9 @@ func (ac *activity) intent() (control.Motion, bool) {
 	case motion.Turn:
 		return control.Motion{Z: v}, true
 	case motion.Strafe:
-		return control.Motion{Y: v}, true
+		return control.Motion{X: -v}, true
 	}
-	return control.Motion{X: v}, true
+	return control.Motion{Y: v}, true
 }
 
 // stop cancels the current activity, if any.
@@ -128,13 +129,38 @@ func (ac *activity) snapshot(pose motion.Pose) ActivityStatus {
 	return st
 }
 
-// drive leases one control tick for an autonomous command. It fails if
+// driveTick leases one control tick for an autonomous command. It fails if
 // someone takes the manual controls or docking starts.
 func (a *application) driveTick(m control.Motion) error {
 	if !a.ready.Load() {
 		return fmt.Errorf("robot not connected")
 	}
-	return a.dock.WhileIdle(func() error { return a.control.Drive(m, 300*time.Millisecond, time.Now()) })
+	d := a.dockManager()
+	if d == nil {
+		return fmt.Errorf("robot not connected")
+	}
+	return d.WhileIdle(func() error { return a.control.Drive(m, 300*time.Millisecond, time.Now()) })
+}
+
+func (a *application) driveApproachTick(m control.Motion) error {
+	if !a.ready.Load() {
+		return fmt.Errorf("robot not connected")
+	}
+	d := a.dockManager()
+	if d == nil {
+		return fmt.Errorf("robot not connected")
+	}
+	return d.WhileApproaching(func() error { return a.control.Drive(m, 300*time.Millisecond, time.Now()) })
+}
+
+func (a *application) driveStopReason(now time.Time) string {
+	if a.control.CheckAutonomy(now) != nil {
+		return "manual"
+	}
+	if a.dockingActive() {
+		return "docking"
+	}
+	return "error"
 }
 
 // endLease stops autonomous motion without latching a manual stop.
@@ -145,6 +171,14 @@ func (a *application) endLease() {
 // runGoal performs one bounded closed-loop move. It returns when the goal is
 // reached or abandoned; the context cancels it.
 func (a *application) runGoal(ctx context.Context, g motion.Goal) motion.Result {
+	return a.runGoalWith(ctx, g, a.driveTick, false)
+}
+
+func (a *application) runGoalForApproach(ctx context.Context, g motion.Goal) motion.Result {
+	return a.runGoalWith(ctx, g, a.driveApproachTick, true)
+}
+
+func (a *application) runGoalWith(ctx context.Context, g motion.Goal, drive func(control.Motion) error, approach bool) motion.Result {
 	m := motion.NewMover(g, a.sensors.tracker.Pose(), time.Now())
 	a.act.setMover(m)
 	defer a.endLease()
@@ -159,12 +193,10 @@ func (a *application) runGoal(ctx context.Context, g motion.Goal) motion.Result 
 		if ctx.Err() != nil {
 			return m.Stop("cancelled", nil)
 		}
-		if err := a.driveTick(cmd); err != nil {
-			reason := "error"
-			if a.control.CheckAutonomy(now) != nil {
-				reason = "manual"
-			} else if a.dock != nil && a.dock.Active() {
-				reason = "docking"
+		if err := drive(cmd); err != nil {
+			reason := a.driveStopReason(now)
+			if approach && reason == "docking" {
+				reason = "cancelled"
 			}
 			return m.Stop(reason, err)
 		}
@@ -182,23 +214,32 @@ func (a *application) Move(parent context.Context, g motion.Goal) (motion.Result
 	if err := g.Validate(); err != nil {
 		return motion.Result{}, err
 	}
+	a.opMu.Lock()
 	if !a.ready.Load() {
+		a.opMu.Unlock()
 		return motion.Result{}, fmt.Errorf("robot not connected")
 	}
 	if err := a.control.CheckAutonomy(time.Now()); err != nil {
+		a.opMu.Unlock()
 		return motion.Result{}, err
 	}
-	if a.dock != nil && a.dock.Active() {
+	if a.dockingActive() {
+		a.opMu.Unlock()
 		return motion.Result{}, fmt.Errorf("docking is in progress")
 	}
 	ctx, cancel := context.WithCancel(parent)
-	stop := context.AfterFunc(a.connCtx, cancel)
-	defer stop()
+	stop := context.AfterFunc(a.connContext(), cancel)
 	label := describeGoal(g)
 	if err := a.act.begin("move", label, cancel); err != nil {
+		a.opMu.Unlock()
+		stop()
 		cancel()
 		return motion.Result{}, err
 	}
+	a.opWG.Add(1)
+	a.opMu.Unlock()
+	defer a.opWG.Done()
+	defer stop()
 	r := a.runGoal(ctx, g)
 	a.act.end(&r)
 	if r.StoppedBy == "obstacle" {
@@ -416,37 +457,46 @@ func (a *application) Patrol(parent context.Context, name string) error {
 	if !ok {
 		return fmt.Errorf("no route named %q", name)
 	}
+	a.opMu.Lock()
 	if !a.ready.Load() {
+		a.opMu.Unlock()
 		return fmt.Errorf("robot not connected")
 	}
 	if err := a.control.CheckAutonomy(time.Now()); err != nil {
+		a.opMu.Unlock()
 		return err
 	}
-	if a.dock != nil && a.dock.Active() {
+	if a.dockingActive() {
+		a.opMu.Unlock()
 		return fmt.Errorf("docking is in progress")
 	}
 	if n, _, _ := a.routes.recordingRoute(); n != "" {
+		a.opMu.Unlock()
 		return fmt.Errorf("finish recording route %q first", n)
 	}
-	ctx, cancel := context.WithCancel(a.connCtx)
+	ctx, cancel := context.WithCancel(a.connContext())
 	if err := a.act.begin("patrol", "Patrol: "+r.Name, cancel); err != nil {
+		a.opMu.Unlock()
 		cancel()
 		return err
 	}
 	a.act.mu.Lock()
 	a.act.route, a.act.steps = r.Name, len(r.Steps)
 	a.act.mu.Unlock()
+	a.opWG.Add(1)
+	a.opMu.Unlock()
 	r.LastRun = time.Now()
 	_ = a.routes.put(r)
 	a.logEvent("patrol", "Patrol started: "+r.Name, false)
 	go func() {
+		defer a.opWG.Done()
 		res := a.runRoute(ctx, r)
 		a.act.end(&res)
 		if res.Completed {
 			a.logEvent("patrol", "Patrol finished: "+r.Name, true)
 			a.notices.add("Patrol finished: "+r.Name, noticeGood)
-			if r.DockAfter && a.dock != nil {
-				if _, err := a.startDock(a.connCtx, 300*time.Second); err != nil {
+			if r.DockAfter && a.dockManager() != nil {
+				if _, err := a.startDock(a.connContext(), 300*time.Second); err != nil {
 					a.notices.add("Could not dock after the patrol: "+err.Error(), noticeBad)
 				}
 			}
@@ -459,8 +509,8 @@ func (a *application) Patrol(parent context.Context, name string) error {
 		// who stopped or took over the patrol keeps the robot where it is.
 		switch res.StoppedBy {
 		case "obstacle", "stalled", "timeout":
-			if r.DockAfter && a.dock != nil {
-				if _, err := a.startDock(a.connCtx, 300*time.Second); err != nil {
+			if r.DockAfter && a.dockManager() != nil {
+				if _, err := a.startDock(a.connContext(), 300*time.Second); err != nil {
 					a.notices.add("Could not dock after the patrol: "+err.Error(), noticeBad)
 				}
 			}
@@ -483,12 +533,22 @@ func (a *application) runRoute(ctx context.Context, r motion.Route) motion.Resul
 			a.act.setMover(nil)
 			if res.StoppedBy == "obstacle" {
 				// Someone may be passing: wait, then finish the step once.
+				timer := time.NewTimer(3 * time.Second)
 				select {
 				case <-ctx.Done():
-				case <-time.After(3 * time.Second):
-					rest := *goal
-					rest.Target -= res.Achieved
-					if math.Abs(rest.Target) > 0.03 {
+					timer.Stop()
+					total.StoppedBy = "cancelled"
+					total.Achieved, total.Seconds = float64(i), time.Since(started).Seconds()
+					return total
+				case <-timer.C:
+					rem := goal.Target - res.Achieved
+					minRem := 0.03
+					if goal.Kind == motion.Turn {
+						minRem = 0.05
+					}
+					if rem*goal.Target > 0 && math.Abs(rem) > minRem {
+						rest := *goal
+						rest.Target = math.Copysign(math.Min(math.Abs(rem), math.Abs(goal.Target)), goal.Target)
 						res = a.runGoal(ctx, rest)
 						a.act.setMover(nil)
 					} else {
@@ -496,7 +556,7 @@ func (a *application) runRoute(ctx context.Context, r motion.Route) motion.Resul
 					}
 				}
 			}
-			if !res.Completed && res.StoppedBy != "timeout" && res.StoppedBy != "stalled" {
+			if !res.Completed {
 				total.StoppedBy, total.Error = res.StoppedBy, res.Error
 				total.Achieved, total.Seconds = float64(i), time.Since(started).Seconds()
 				return total
@@ -525,7 +585,7 @@ func (a *application) runTimed(ctx context.Context, m control.Motion, d time.Dur
 	for time.Now().Before(end) {
 		if m != (control.Motion{}) {
 			if err := a.driveTick(m); err != nil {
-				return "manual", err
+				return a.driveStopReason(time.Now()), err
 			}
 		} else if err := a.control.CheckAutonomy(time.Now()); err != nil {
 			return "manual", err
@@ -552,6 +612,9 @@ func (a *application) watchPatrols(ctx context.Context) {
 			return
 		case <-t.C:
 		}
+		if h := time.Unix(0, a.humanAt.Load()); h.After(lastManual) {
+			lastManual = h
+		}
 		if o := a.control.Snapshot().Owner; o == "manual" || o == "manual-stop" || o == "agent" {
 			lastManual = time.Now()
 		}
@@ -561,7 +624,7 @@ func (a *application) watchPatrols(ctx context.Context) {
 		if time.Since(at) > batteryFreshFor || pct < 50 || (charge != 0 && charge != 2) || time.Since(lastManual) < 2*time.Minute {
 			continue
 		}
-		if a.dock != nil && a.dock.Active() || a.act.snapshot(motion.Pose{}).Kind != "" {
+		if a.dockingActive() || a.act.snapshot(motion.Pose{}).Kind != "" {
 			continue
 		}
 		for _, r := range a.routes.List() {
@@ -626,23 +689,31 @@ func (a *application) needsApproach() bool {
 // measured pose after every turn or drive. It returns early (without an
 // error) at an obstacle, after turning to face the dock, so the firmware can
 // take over from there.
-func (a *application) approachDock(parent context.Context) error {
+func (a *application) approachDock(parent context.Context) (err error) {
+	log.Printf("assisted docking: approaching the dock first")
 	ctx, cancel := context.WithCancel(parent)
-	stop := context.AfterFunc(a.connCtx, cancel)
+	stop := context.AfterFunc(a.connContext(), cancel)
 	defer stop()
 	if err := a.act.begin("move", "Approaching the dock", cancel); err != nil {
 		cancel()
 		return err
 	}
 	var last motion.Result
-	defer func() { last.Kind = "approach"; a.act.end(&last) }()
+	defer func() {
+		if err == nil {
+			last = motion.Result{Kind: "approach", Completed: true}
+		} else {
+			last.Kind = "approach"
+		}
+		a.act.end(&last)
+	}()
 	misses := 0
 	for i := 0; i < 12; i++ {
 		plan := motion.ApproachPlan(a.sensors.tracker.Pose())
 		if len(plan) == 0 {
 			return nil
 		}
-		last = a.runGoal(ctx, plan[0])
+		last = a.runGoalForApproach(ctx, plan[0])
 		a.act.setMover(nil)
 		switch last.StoppedBy {
 		case "":
@@ -653,7 +724,11 @@ func (a *application) approachDock(parent context.Context) error {
 		case "obstacle":
 			p := a.sensors.tracker.Pose()
 			if t := math.Remainder(math.Pi-p.Yaw, 2*math.Pi); math.Abs(t) > 0.1 {
-				last = a.runGoal(ctx, motion.Goal{Kind: motion.Turn, Target: t, Speed: 1})
+				last = a.runGoalForApproach(ctx, motion.Goal{Kind: motion.Turn, Target: t, Speed: 1})
+				a.act.setMover(nil)
+				if last.StoppedBy != "" && last.StoppedBy != "timeout" && last.StoppedBy != "stalled" {
+					return fmt.Errorf("approach to the dock stopped: %s", last.StoppedBy)
+				}
 			}
 			return nil
 		default:
@@ -664,27 +739,22 @@ func (a *application) approachDock(parent context.Context) error {
 }
 
 // startDock begins docking, driving to the dock's approach point first when
-// that helps. It blocks while approaching (up to about a minute).
+// that helps. It returns immediately so API and UI callers are not blocked.
 func (a *application) startDock(ctx context.Context, timeout time.Duration) (any, error) {
-	if a.dock == nil {
+	if ctx != nil && ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	a.opMu.Lock()
+	defer a.opMu.Unlock()
+	d := a.dockManager()
+	if !a.ready.Load() || d == nil {
 		return nil, fmt.Errorf("robot not connected")
 	}
-	if a.needsApproach() {
-		if err := a.control.CheckAutonomy(time.Now()); err != nil {
-			return nil, err
-		}
-		if a.act.snapshot(motion.Pose{}).Kind != "" {
-			return nil, errBusy
-		}
-		log.Printf("assisted docking: approaching the dock first")
-		if err := a.approachDock(ctx); err != nil {
-			return nil, err
-		}
+	if err := a.control.CheckAutonomy(time.Now()); err != nil {
+		return nil, err
 	}
-	a.unsubscribeOdometry() // see subscribeOdometry
-	op, err := a.dock.Start(timeout)
-	if err != nil {
-		a.subscribeOdometry()
+	if a.act.snapshot(motion.Pose{}).Kind != "" {
+		return nil, errBusy
 	}
-	return op, err
+	return d.Start(timeout)
 }

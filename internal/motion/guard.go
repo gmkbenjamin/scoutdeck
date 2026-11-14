@@ -35,20 +35,20 @@ func (r Range) Fresh(now time.Time) bool {
 // GuardStop. Reversing, strafing and turning are unchanged: the sensor only
 // sees ahead. limited reports whether the command was reduced.
 func Limit(m control.Motion, r Range, now time.Time) (out control.Motion, limited bool) {
-	if m.X <= 0 || !r.Fresh(now) || math.IsInf(r.Meters, 1) || r.Meters >= GuardSlow {
+	if m.Y <= 0 || !r.Fresh(now) || math.IsInf(r.Meters, 1) || r.Meters >= GuardSlow {
 		return m, false
 	}
 	f := (r.Meters - GuardStop) / (GuardSlow - GuardStop)
 	f = math.Max(0, math.Min(1, f))
 	// Keep a crawl so the robot can still approach to the stop distance.
-	maxX := math.Max(f*0.2, 0)
+	maxY := math.Max(f*0.3, 0)
 	if r.Meters > GuardStop {
-		maxX = math.Max(maxX, 0.04)
+		maxY = math.Max(maxY, 0.04)
 	}
-	if m.X <= maxX {
+	if m.Y <= maxY {
 		return m, false
 	}
-	m.X = maxX
+	m.Y = maxY
 	return m, true
 }
 

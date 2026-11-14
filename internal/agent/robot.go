@@ -194,12 +194,12 @@ func RestoreReady(checks []RestoreCheck) bool {
 // misc partition; tests point it at a file.
 const writeBCBScript = `set -e
 off=16384
-# command[32] + status[32] + recovery[768]
-dd if=/dev/zero of="$MISC" bs=1 seek=$off count=832 conv=notrunc 2>/dev/null
-printf 'boot-recovery' | dd of="$MISC" bs=1 seek=$off conv=notrunc 2>/dev/null
-printf 'recovery\n' | dd of="$MISC" bs=1 seek=$((off + 64)) conv=notrunc 2>/dev/null
+# command[32] + status[32] + recovery[768] (32*512=16384, 32*26=832; 64*256=16384)
+dd if=/dev/zero of="$MISC" bs=32 seek=512 count=26 conv=notrunc 2>/dev/null
+printf 'boot-recovery' | dd of="$MISC" bs=64 seek=256 conv=notrunc 2>/dev/null
+printf 'recovery\n' | dd of="$MISC" bs=64 seek=257 conv=notrunc 2>/dev/null
 sync
-got=$(dd if="$MISC" bs=1 skip=$off count=32 2>/dev/null | tr -d '\000')
+got=$(dd if="$MISC" bs=32 skip=512 count=1 2>/dev/null | tr -d '\000')
 test "$got" = boot-recovery
 echo written`
 

@@ -10,19 +10,22 @@ import (
 
 func TestLimit(t *testing.T) {
 	now := time.Now()
-	fwd := control.Motion{X: 0.2, Z: 0.5}
+	fwd := control.Motion{Y: 0.3, Z: 0.5}
 	if got, lim := Limit(fwd, Range{Meters: math.Inf(1), At: now}, now); lim || got != fwd {
 		t.Fatalf("clear path limited: %+v", got)
 	}
-	if got, lim := Limit(fwd, Range{Meters: 0.1, At: now}, now); !lim || got.X != 0 || got.Z != 0.5 {
+	if got, lim := Limit(fwd, Range{Meters: 0.1, At: now}, now); !lim || got.Y != 0 || got.Z != 0.5 {
 		t.Fatalf("close obstacle: %+v %v", got, lim)
 	}
 	mid, lim := Limit(fwd, Range{Meters: 0.39, At: now}, now)
-	if !lim || mid.X <= 0.04 || mid.X >= 0.2 {
+	if !lim || mid.Y <= 0.04 || mid.Y >= 0.3 {
 		t.Fatalf("approach should slow: %+v", mid)
 	}
-	if got, lim := Limit(control.Motion{X: -0.2}, Range{Meters: 0.05, At: now}, now); lim || got.X != -0.2 {
+	if got, lim := Limit(control.Motion{Y: -0.3}, Range{Meters: 0.05, At: now}, now); lim || got.Y != -0.3 {
 		t.Fatal("reversing must not be limited")
+	}
+	if got, lim := Limit(control.Motion{X: 0.2}, Range{Meters: 0.05, At: now}, now); lim || got.X != 0.2 {
+		t.Fatal("strafing must not be limited")
 	}
 	if _, lim := Limit(fwd, Range{Meters: 0.05, At: now.Add(-time.Second)}, now); lim {
 		t.Fatal("stale readings must not limit")
@@ -30,6 +33,7 @@ func TestLimit(t *testing.T) {
 }
 
 // sim drives a perfect robot: commanded velocity becomes gyro and odometry.
+// Scout's Motion sends Y forward and X right; odometry reports (fwd, left).
 type sim struct {
 	tr  *Tracker
 	now time.Time
@@ -41,7 +45,7 @@ func (s *sim) run(m control.Motion, d time.Duration, odom bool) {
 		s.now = s.now.Add(5 * time.Millisecond)
 		s.tr.Gyro(m.Z, s.now)
 		if odom && t%(100*time.Millisecond) == 0 {
-			s.tr.Odometry(m.X, m.Y, s.now)
+			s.tr.Odometry(m.Y, -m.X, s.now)
 		}
 	}
 }
@@ -50,7 +54,7 @@ func TestTrackerIntegrates(t *testing.T) {
 	s := &sim{tr: &Tracker{}, now: time.Unix(1000, 0)}
 	s.tr.Reset(s.now)
 	s.run(control.Motion{}, time.Second, true)
-	s.run(control.Motion{X: 0.1}, 2*time.Second, true)
+	s.run(control.Motion{Y: 0.1}, 2*time.Second, true)
 	p := s.tr.Pose()
 	if math.Abs(p.X-0.2) > 0.02 || math.Abs(p.Y) > 0.01 || p.Source != "odometry" {
 		t.Fatalf("straight: %+v", p)
@@ -59,7 +63,7 @@ func TestTrackerIntegrates(t *testing.T) {
 	if p = s.tr.Pose(); math.Abs(p.Yaw-math.Pi/2) > 0.02 {
 		t.Fatalf("turn: %+v", p)
 	}
-	s.run(control.Motion{X: 0.1}, time.Second, true)
+	s.run(control.Motion{Y: 0.1}, time.Second, true)
 	if p = s.tr.Pose(); math.Abs(p.X-0.2) > 0.03 || math.Abs(p.Y-0.1) > 0.02 {
 		t.Fatalf("after turn: %+v", p)
 	}
@@ -87,7 +91,7 @@ func TestMoverTurnsAndDrives(t *testing.T) {
 		}
 		s := &sim{tr: &Tracker{}, now: time.Unix(1000, 0)}
 		s.tr.Reset(s.now)
-		s.run(control.Motion{X: 0.01}, 300*time.Millisecond, true) // prove odometry
+		s.run(control.Motion{Y: 0.01}, 300*time.Millisecond, true) // prove odometry
 		m := NewMover(g, s.tr.Pose(), s.now)
 		var done bool
 		var cmd control.Motion
@@ -113,9 +117,14 @@ func TestMoverStopsForObstacle(t *testing.T) {
 }
 
 func TestGoalValidate(t *testing.T) {
-	for _, g := range []Goal{{Kind: Drive, Target: 5}, {Kind: Drive}, {Kind: Turn, Target: 20}, {Kind: "fly", Target: 1}, {Kind: Drive, Target: 1, Speed: 0.5}, {Kind: Turn, Target: math.NaN()}} {
+	for _, g := range []Goal{{Kind: Drive, Target: 5}, {Kind: Drive}, {Kind: Turn, Target: 20}, {Kind: "fly", Target: 1}, {Kind: Drive, Target: 1, Speed: 0.35}, {Kind: Strafe, Target: 1, Speed: 0.25}, {Kind: Turn, Target: math.NaN()}} {
 		if g.Validate() == nil {
 			t.Fatalf("accepted %+v", g)
+		}
+	}
+	for _, g := range []Goal{{Kind: Drive, Target: 1, Speed: 0.3}, {Kind: Strafe, Target: -0.5, Speed: 0.2}} {
+		if err := g.Validate(); err != nil {
+			t.Fatalf("rejected %+v: %v", g, err)
 		}
 	}
 }
@@ -131,24 +140,28 @@ func TestRouteRecordAndPlan(t *testing.T) {
 		}
 	}
 	step(control.Motion{}, time.Second) // idle before start: dropped
-	step(control.Motion{X: 0.15}, 2*time.Second)
+	step(control.Motion{Y: 0.15}, 2*time.Second)
+	step(control.Motion{X: 0.15}, 1*time.Second) // strafe right -> negative Strafe target
 	step(control.Motion{Z: 1}, 1500*time.Millisecond)
-	step(control.Motion{X: 0.1, Z: 0.3}, time.Second)
+	step(control.Motion{Y: 0.1, Z: 0.3}, time.Second)
 	step(control.Motion{}, 2*time.Second) // trailing idle: dropped
 	r, err := rec.Finish("Kitchen loop", s.tr.Pose(), s.now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(r.Steps) != 3 {
+	if len(r.Steps) != 4 {
 		t.Fatalf("steps: %+v", r.Steps)
 	}
 	if g, _, _ := r.Steps[0].Plan(true); g == nil || g.Kind != Drive || math.Abs(g.Target-0.3) > 0.03 {
 		t.Fatalf("drive plan: %+v", g)
 	}
-	if g, _, _ := r.Steps[1].Plan(true); g == nil || g.Kind != Turn || math.Abs(g.Target-1.5) > 0.05 {
+	if g, _, _ := r.Steps[1].Plan(true); g == nil || g.Kind != Strafe || math.Abs(g.Target+0.15) > 0.03 {
+		t.Fatalf("strafe plan: %+v", g)
+	}
+	if g, _, _ := r.Steps[2].Plan(true); g == nil || g.Kind != Turn || math.Abs(g.Target-1.5) > 0.05 {
 		t.Fatalf("turn plan: %+v", g)
 	}
-	if g, m, secs := r.Steps[2].Plan(true); g != nil || m.Z != 0.3 || math.Abs(secs-1) > 0.05 {
+	if g, m, secs := r.Steps[3].Plan(true); g != nil || m.Z != 0.3 || math.Abs(secs-1) > 0.05 {
 		t.Fatalf("arc plan: %+v %+v %v", g, m, secs)
 	}
 	if g, _, secs := r.Steps[0].Plan(false); g != nil || secs < 1.9 {
@@ -210,7 +223,7 @@ func TestApproachPlan(t *testing.T) {
 	for _, start := range [][3]float64{{0.16, -0.2, 171}, {-1, 0, 0}, {-0.6, 0.3, 90}, {0.6, 5, -90}, {6, 0, 45}, {4, -4, 180}, {0.1, 0, 180}, {0.6, 0, 0}} {
 		s := &sim{tr: &Tracker{}, now: time.Unix(1000, 0)}
 		s.tr.Reset(s.now)
-		s.run(control.Motion{X: 0.01}, 300*time.Millisecond, true)
+		s.run(control.Motion{Y: 0.01}, 300*time.Millisecond, true)
 		s.tr.mu.Lock()
 		s.tr.pose.X, s.tr.pose.Y, s.tr.pose.Yaw = start[0], start[1], start[2]*math.Pi/180
 		s.tr.mu.Unlock()
@@ -230,12 +243,12 @@ func TestRecorderMergesRamps(t *testing.T) {
 		now = now.Add(100 * time.Millisecond)
 	}
 	p.Turned = -0.5
-	for _, x := range []float64{0.05, 0.1, 0.15, 0.1, 0.04} {
-		rec.Sample(control.Motion{X: x}, p, now)
+	for _, y := range []float64{0.05, 0.1, 0.15, 0.1, 0.04} {
+		rec.Sample(control.Motion{Y: y}, p, now)
 		now = now.Add(100 * time.Millisecond)
 	}
 	r, err := rec.Finish("ramps", Pose{X: 0.3, Turned: -0.5}, now)
-	if err != nil || len(r.Steps) != 2 || r.Steps[0].Motion.Z != -1 || r.Steps[1].Motion.X != 0.15 {
+	if err != nil || len(r.Steps) != 2 || r.Steps[0].Motion.Z != -1 || r.Steps[1].Motion.Y != 0.15 {
 		t.Fatalf("%v %+v", err, r.Steps)
 	}
 }

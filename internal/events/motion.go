@@ -16,7 +16,6 @@ type Detector struct {
 	Sensitivity int
 
 	bg      []float64
-	w, h    int
 	warm    int
 	settle  time.Time
 	lastBox *Box

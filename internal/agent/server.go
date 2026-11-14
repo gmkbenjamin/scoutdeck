@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -422,9 +423,21 @@ func SessionValue(token string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// IsLoopback reports whether a remote address (host or host:port) is loopback.
+func IsLoopback(remoteAddr string) bool {
+	host := remoteAddr
+	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // SameOrigin reports whether a browser request came from the page's own
 // origin. Safari, Chrome and Firefox send Sec-Fetch-Site; Origin is the
-// fallback for older browsers.
+// fallback for older browsers. Forwarded headers are honoured only when the
+// immediate peer is loopback (e.g. tailscale serve on this Mac).
 func SameOrigin(r *http.Request) bool {
 	switch r.Header.Get("Sec-Fetch-Site") {
 	case "same-origin":
@@ -438,5 +451,23 @@ func SameOrigin(r *http.Request) bool {
 		return false
 	}
 	u, err := url.Parse(origin)
-	return err == nil && u.Host != "" && (u.Host == r.Host || u.Host == r.Header.Get("X-Forwarded-Host"))
+	if err != nil || u.Host == "" {
+		return false
+	}
+	loopback := IsLoopback(r.RemoteAddr)
+	wantScheme := "http"
+	if r.TLS != nil || (loopback && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")) {
+		wantScheme = "https"
+	}
+	if !strings.EqualFold(u.Scheme, wantScheme) {
+		return false
+	}
+	if u.Host == r.Host {
+		return true
+	}
+	if loopback {
+		fh := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Host"), ",")[0])
+		return fh != "" && u.Host == fh
+	}
+	return false
 }

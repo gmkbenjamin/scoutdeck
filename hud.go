@@ -291,10 +291,12 @@ func (h *hud) draw(screen *ebiten.Image, g *Game) {
 	h.drawDrive(screen, g)
 	bottomY := 1080 - 24.0
 	if !g.inputTest {
-		op := g.app.dock.Snapshot()
-		if h.dockVisible(op, now) {
-			h.drawDock(screen, op, w, now)
-			bottomY -= 150 + 12
+		if d := g.app.dockManager(); d != nil {
+			op := d.Snapshot()
+			if h.dockVisible(op, now) {
+				h.drawDock(screen, op, w, now)
+				bottomY -= 150 + 12
+			}
 		}
 		h.drawActivity(screen, g, w, now, bottomY-84)
 	}
@@ -429,7 +431,7 @@ func (h *hud) drawTopBar(screen *ebiten.Image, g *Game, w float64, videoLive boo
 func (h *hud) drawDrive(screen *ebiten.Image, g *Game) {
 	state := g.app.control.Snapshot()
 	owner := state.Owner
-	if !g.inputTest && g.app.dock.Active() {
+	if !g.inputTest && g.app.dockingActive() {
 		owner = "docking"
 	}
 	if !g.inputTest && owner == "agent" {
@@ -495,8 +497,8 @@ func (h *hud) drawDrive(screen *ebiten.Image, g *Game) {
 	h.ring(screen, cx, cy, r, 1.5, withAlpha(colText, 40))
 	h.line(screen, cx-r, cy, cx+r, cy, 1, withAlpha(colText, 30))
 	h.line(screen, cx, cy-r, cx, cy+r, 1, withAlpha(colText, 30))
-	dx := math.Max(-1, math.Min(1, -m.Y/0.3)) * r
-	dy := math.Max(-1, math.Min(1, -m.X/0.3)) * r
+	dx := math.Max(-1, math.Min(1, m.X/0.2)) * r
+	dy := math.Max(-1, math.Min(1, -m.Y/0.3)) * r
 	dotCol := colDim
 	if moving {
 		dotCol = colAccent
@@ -916,38 +918,60 @@ func (h *hud) drawMenu(screen *ebiten.Image, g *Game, w float64) {
 			if url == "" {
 				url = lanURLs(g)[0]
 			}
-			pair := url + "#pair=" + g.app.apiToken
-			if img := h.qr(pair); img != nil {
-				op := &ebiten.DrawImageOptions{}
-				size := 300.0
-				op.GeoM.Scale(size*h.s/float64(img.Bounds().Dx()), size*h.s/float64(img.Bounds().Dy()))
-				op.GeoM.Translate(tx*h.s, cy*h.s)
-				screen.DrawImage(img, op)
-				tx += size + 30
+			code, exp := g.app.codes.Current()
+			hasQR := false
+			if code != "" {
+				pair := url + "#pair=" + code
+				if img := h.qr(pair); img != nil {
+					hasQR = true
+					op := &ebiten.DrawImageOptions{}
+					size := 300.0
+					op.GeoM.Scale(size*h.s/float64(img.Bounds().Dx()), size*h.s/float64(img.Bounds().Dy()))
+					op.GeoM.Translate(tx*h.s, cy*h.s)
+					screen.DrawImage(img, op)
+					tx += size + 30
+				}
 			}
 			ty := cy + 14
-			for _, line := range []struct {
+			type phoneLine struct {
 				s string
 				c color.Color
 				b bool
-			}{
-				{"Scan with the iPhone or iPad camera", colText, true},
-				{"Opens Scout in Safari, already paired.", colDim, false},
-				{"Then Share > Add to Home Screen for a full-screen app.", colDim, false},
-				{"", colDim, false},
-				{tsLabel(pa.URL), colDim, true},
-				{tsValue(pa.URL), colAccent, false},
-				{"HOME WI-FI (L to turn " + onOff(!lanOn(g)) + ")", colDim, true},
-				{lanValue(g), colAccent, false},
-				{"", colDim, false},
-				{"Or open the address and enter this one-time code:", colDim, false},
-			} {
+			}
+			var lines []phoneLine
+			if hasQR {
+				lines = append(lines,
+					phoneLine{"Scan with the iPhone or iPad camera", colText, true},
+					phoneLine{"Opens Scout in Safari with a one-time pairing code.", colDim, false},
+					phoneLine{"Then Share > Add to Home Screen for a full-screen app.", colDim, false},
+					phoneLine{"", colDim, false},
+				)
+			} else {
+				lines = append(lines,
+					phoneLine{"Press N for a new pairing QR and one-time code", colText, true},
+					phoneLine{"Previous code was used, expired or cleared.", colDim, false},
+					phoneLine{"", colDim, false},
+				)
+			}
+			lines = append(lines,
+				phoneLine{tsLabel(pa.URL), colDim, true},
+				phoneLine{tsValue(pa.URL), colAccent, false},
+				phoneLine{"HOME WI-FI (L to turn " + onOff(!lanOn(g)) + ")", colDim, true},
+				phoneLine{lanValue(g), colAccent, false},
+			)
+			if hasQR {
+				lines = append(lines,
+					phoneLine{"", colDim, false},
+					phoneLine{"Or open the address and enter this one-time code:", colDim, false},
+				)
+			}
+			for _, line := range lines {
 				if line.s != "" {
 					h.text(screen, h.fit(line.s, 17, line.b, x+pw-40-tx), 17, line.b, tx, ty, line.c, text.AlignStart)
 				}
 				ty += 28
 			}
-			if code, exp := g.app.codes.Current(); code != "" {
+			if code != "" {
 				h.text(screen, code[:3]+" "+code[3:], 40, true, tx, ty+16, colText, text.AlignStart)
 				h.text(screen, fmt.Sprintf("valid %s, once", fmtDuration(time.Until(exp))), 15, false, tx+200, ty+18, colDim, text.AlignStart)
 			}

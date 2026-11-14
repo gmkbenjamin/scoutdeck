@@ -117,9 +117,8 @@ func (a *application) setAutoDock(s AutoDockSettings) error {
 	}
 	a.settingsMu.Lock()
 	a.settings.AutoDock, a.settings.AutoDockAt = s.Enabled, s.Threshold
-	saved := a.settings
 	a.settingsMu.Unlock()
-	if err := saveSettings(saved); err != nil {
+	if err := a.saveSettings(); err != nil {
 		return err
 	}
 	if !s.Enabled {
@@ -157,7 +156,7 @@ func (a *application) watchAutoDock(ctx context.Context) {
 		ctrl := a.control.Snapshot()
 		in := autoDockInput{
 			Enabled: cfg.Enabled, Threshold: cfg.Threshold, Percent: pct, ChargeState: charge, BatteryAt: at,
-			CanDock: a.ready.Load() && a.audio != nil, Docking: a.dock != nil && a.dock.Active(),
+			CanDock: a.ready.Load() && a.audio != nil, Docking: a.dockingActive(),
 			Driving: ctrl.Owner == "manual" || ctrl.Owner == "manual-stop" || ctrl.Owner == "agent",
 			Now:     time.Now(),
 		}

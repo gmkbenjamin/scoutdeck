@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -19,10 +20,12 @@ var flagLAN = flag.Bool("lan", false, "also serve the web app on this Mac's home
 // optionally also serves the web app on this Mac's private LAN addresses.
 
 type phoneAddresses struct {
+	applyMu   sync.Mutex
 	mu        sync.Mutex
 	tailscale string   // https URL from `tailscale serve`, if configured
 	lan       []string // http URLs on private LAN addresses, if enabled
 	listeners []net.Listener
+	servers   []*http.Server
 }
 
 func (p *phoneAddresses) snapshot() (string, []string) {
@@ -32,11 +35,20 @@ func (p *phoneAddresses) snapshot() (string, []string) {
 }
 
 // privateIPv4s lists this Mac's private (RFC 1918) IPv4 addresses on up interfaces.
+func isTunnelOrVirtual(name string) bool {
+	for _, p := range []string{"utun", "tun", "tap", "wg", "ppp", "ipsec", "bridge", "veth", "docker"} {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func privateIPv4s() []string {
 	var out []string
 	ifaces, _ := net.Interfaces()
 	for _, ifc := range ifaces {
-		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 {
+		if ifc.Flags&net.FlagUp == 0 || ifc.Flags&net.FlagLoopback != 0 || ifc.Flags&net.FlagPointToPoint != 0 || isTunnelOrVirtual(ifc.Name) {
 			continue
 		}
 		addrs, _ := ifc.Addrs()
@@ -68,19 +80,30 @@ func lanOnly(h http.Handler) http.Handler {
 	})
 }
 
+func (p *phoneAddresses) closeLAN() {
+	p.mu.Lock()
+	servers := p.servers
+	listeners := p.listeners
+	p.servers, p.listeners, p.lan = nil, nil, nil
+	p.mu.Unlock()
+	for _, srv := range servers {
+		_ = srv.Close()
+	}
+	for _, l := range listeners {
+		_ = l.Close()
+	}
+}
+
 // applyLANAccess starts or stops the LAN listeners to match the setting.
 func (a *application) applyLANAccess() error {
 	p := &a.phones
-	p.mu.Lock()
-	for _, l := range p.listeners {
-		_ = l.Close()
-	}
-	p.listeners, p.lan = nil, nil
-	p.mu.Unlock()
+	p.applyMu.Lock()
+	defer p.applyMu.Unlock()
+	p.closeLAN()
 	a.settingsMu.Lock()
 	enabled := a.settings.LANAccess
 	a.settingsMu.Unlock()
-	if !enabled || a.server == nil {
+	if !enabled || a.server == nil || a.ctx.Err() != nil {
 		return nil
 	}
 	_, port, err := net.SplitHostPort(*flagAPI)
@@ -103,6 +126,7 @@ func (a *application) applyLANAccess() error {
 			}
 		}()
 		p.mu.Lock()
+		p.servers = append(p.servers, srv)
 		p.listeners = append(p.listeners, l)
 		p.lan = append(p.lan, "http://"+addr+"/")
 		p.mu.Unlock()
@@ -117,9 +141,8 @@ func (a *application) applyLANAccess() error {
 func (a *application) setLANAccess(on bool) error {
 	a.settingsMu.Lock()
 	a.settings.LANAccess = on
-	saved := a.settings
 	a.settingsMu.Unlock()
-	if err := saveSettings(saved); err != nil {
+	if err := a.saveSettings(); err != nil {
 		return err
 	}
 	return a.applyLANAccess()
@@ -142,11 +165,9 @@ func (a *application) watchPhoneAddresses() {
 		}
 		select {
 		case <-a.ctx.Done():
-			a.phones.mu.Lock()
-			for _, l := range a.phones.listeners {
-				_ = l.Close()
-			}
-			a.phones.mu.Unlock()
+			a.phones.applyMu.Lock()
+			a.phones.closeLAN()
+			a.phones.applyMu.Unlock()
 			return
 		case <-time.After(30 * time.Second):
 		}

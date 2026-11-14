@@ -93,7 +93,8 @@ func (r *Recorder) close(p Pose, now time.Time) {
 	s.Turn = p.Turned - r.start.Turned
 	dx, dy := p.X-r.start.X, p.Y-r.start.Y
 	axis := r.start.Yaw
-	if s.Motion.X == 0 && s.Motion.Y != 0 {
+	if s.Motion.Y == 0 && s.Motion.X != 0 {
+		// Strafe steps track +left distance along Yaw+Pi/2 (Motion.X > 0 moves right).
 		axis += math.Pi / 2
 	}
 	s.Distance = dx*math.Cos(axis) + dy*math.Sin(axis)
@@ -165,10 +166,10 @@ func (s Step) Plan(odometry bool) (goal *Goal, timed control.Motion, seconds flo
 		return nil, m, math.Min(s.Seconds, 10)
 	case m.X == 0 && m.Y == 0 && math.Abs(s.Turn) > 2*math.Pi/180:
 		return &Goal{Kind: Turn, Target: s.Turn, Speed: clamp(math.Abs(m.Z), MinTurnRate, 1.8)}, m, 0
-	case odometry && m.Y == 0 && m.Z == 0 && math.Abs(s.Distance) > 0.03:
-		return &Goal{Kind: Drive, Target: s.Distance, Speed: clamp(math.Abs(m.X), MinSpeed, 0.2)}, m, 0
 	case odometry && m.X == 0 && m.Z == 0 && math.Abs(s.Distance) > 0.03:
-		return &Goal{Kind: Strafe, Target: s.Distance, Speed: clamp(math.Abs(m.Y), MinSpeed, 0.3)}, m, 0
+		return &Goal{Kind: Drive, Target: s.Distance, Speed: clamp(math.Abs(m.Y), MinSpeed, 0.3)}, m, 0
+	case odometry && m.Y == 0 && m.Z == 0 && math.Abs(s.Distance) > 0.03:
+		return &Goal{Kind: Strafe, Target: s.Distance, Speed: clamp(math.Abs(m.X), MinSpeed, 0.2)}, m, 0
 	default:
 		return nil, m, s.Seconds
 	}

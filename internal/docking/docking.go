@@ -31,9 +31,13 @@ type Operation struct {
 type Hooks struct {
 	// Prepare stops manual/agent control and flushes a zero command.
 	Prepare func(context.Context) error
-	Start   func(context.Context) error
-	Cancel  func(context.Context) error
-	Probe   func(context.Context) (Power, error)
+	// ShouldApproach reports synchronously during Start whether Approach should run first.
+	ShouldApproach func() bool
+	// Approach optionally drives near the dock before native docking takes over.
+	Approach func(context.Context) error
+	Start    func(context.Context) error
+	Cancel   func(context.Context) error
+	Probe    func(context.Context) (Power, error)
 }
 
 type Manager struct {
@@ -70,10 +74,17 @@ func New(ctx context.Context, hooks Hooks) *Manager {
 func (m *Manager) Snapshot() Operation { m.mu.Lock(); defer m.mu.Unlock(); return m.op }
 func (m *Manager) Active() bool        { return m.Snapshot().Active }
 
+// NativeActive reports whether the robot firmware is actively docking (after any approach step).
+func (m *Manager) NativeActive() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.op.Active && m.op.State != "approaching"
+}
+
 func (m *Manager) Phase(phase int32) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if !m.op.Active || m.op.State == "cancel_failed" {
+	if !m.op.Active || m.op.State == "approaching" || m.op.State == "cancel_failed" {
 		return
 	}
 	m.op.FirmwarePhase = phase
@@ -95,10 +106,22 @@ func (m *Manager) WhileIdle(fn func() error) error {
 	return fn()
 }
 
+// WhileApproaching serializes pre-docking approach steps so external drive
+// requests stay blocked while only the docking approach moves the robot.
+func (m *Manager) WhileApproaching(fn func() error) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.op.Active || m.op.State != "approaching" {
+		return fmt.Errorf("docking is not in the approach phase")
+	}
+	return fn()
+}
+
 func (m *Manager) Start(timeout time.Duration) (Operation, error) {
 	if timeout < 10*time.Second || timeout > MaxTimeout {
 		return Operation{}, fmt.Errorf("timeout_seconds must be 10..%d", int(MaxTimeout/time.Second))
 	}
+	approaching := m.hooks.Approach != nil && m.hooks.ShouldApproach != nil && m.hooks.ShouldApproach()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.parent.Err() != nil {
@@ -116,9 +139,13 @@ func (m *Manager) Start(timeout time.Duration) (Operation, error) {
 	m.done = make(chan struct{})
 	m.phaseAt = time.Time{}
 	m.firmwareActive = false
-	m.op = Operation{ID: fmt.Sprintf("dock-%d", now.UnixNano()), State: "starting", Active: true, StartedAt: now, UpdatedAt: now, Deadline: now.Add(timeout)}
+	state := "starting"
+	if approaching {
+		state = "approaching"
+	}
+	m.op = Operation{ID: fmt.Sprintf("dock-%d", now.UnixNano()), State: state, Active: true, StartedAt: now, UpdatedAt: now, Deadline: now.Add(timeout)}
 	op := m.op
-	go m.run(ctx, m.done)
+	go m.run(ctx, m.done, approaching)
 	return op, nil
 }
 
@@ -160,14 +187,18 @@ func (m *Manager) Cancel(ctx context.Context) error {
 	}
 }
 
-func (m *Manager) run(ctx context.Context, done chan struct{}) {
+func (m *Manager) run(ctx context.Context, done chan struct{}, approaching bool) {
 	defer close(done)
 	state, detail := "failed", ""
+	nativeStarted := false
 	defer func() {
-		// Cancellation has its own deadline, including when the operation timed out.
-		cleanup, cancel := context.WithTimeout(context.Background(), 7*time.Second)
-		defer cancel()
-		err := m.hooks.Cancel(cleanup)
+		var err error
+		if nativeStarted {
+			// Cancellation has its own deadline, including when the operation timed out.
+			cleanup, cancel := context.WithTimeout(context.Background(), 7*time.Second)
+			err = m.hooks.Cancel(cleanup)
+			cancel()
+		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		m.op.State = state
@@ -194,30 +225,56 @@ func (m *Manager) run(ctx context.Context, done chan struct{}) {
 		}
 		detail = ctx.Err().Error()
 	}
+	failOrContext := func(prefix string, err error) {
+		if ctx.Err() != nil {
+			finishContext()
+			return
+		}
+		detail = prefix + err.Error()
+	}
+	launchNative := func() bool {
+		if ctx.Err() != nil {
+			finishContext()
+			return false
+		}
+		nativeStarted = true
+		if err := m.startNative(ctx); err != nil {
+			failOrContext("docking service failed: ", err)
+			return false
+		}
+		return true
+	}
 	if ctx.Err() != nil {
 		finishContext()
 		return
 	}
+	if approaching {
+		if err := m.hooks.Approach(ctx); err != nil {
+			failOrContext("", err)
+			return
+		}
+		m.mu.Lock()
+		if m.op.Active && m.op.State == "approaching" {
+			m.op.State = "starting"
+			m.op.UpdatedAt = time.Now()
+		}
+		m.mu.Unlock()
+	}
 	if err := m.hooks.Prepare(ctx); err != nil {
-		detail = err.Error()
+		failOrContext("", err)
 		return
 	}
 	// Establish a fresh baseline before the robot is allowed to start searching.
 	p, err := m.hooks.Probe(ctx)
 	if err != nil {
-		detail = "cannot verify initial charging state: " + err.Error()
+		failOrContext("cannot verify initial charging state: ", err)
 		return
 	}
 	m.setPower(p)
 	started := false
 	connectedCount := 0
 	if !p.Connected {
-		if ctx.Err() != nil {
-			finishContext()
-			return
-		}
-		if err := m.startNative(ctx); err != nil {
-			detail = "docking service failed: " + err.Error()
+		if !launchNative() {
 			return
 		}
 		started = true
@@ -253,8 +310,7 @@ func (m *Manager) run(ctx context.Context, done chan struct{}) {
 				return
 			}
 			if !started {
-				if err = m.startNative(ctx); err != nil {
-					detail = err.Error()
+				if !launchNative() {
 					return
 				}
 				started = true

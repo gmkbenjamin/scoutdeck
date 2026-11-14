@@ -210,7 +210,7 @@ func (g *Game) Update() error {
 }
 
 func (g *Game) cancelDock() {
-	if g.app.dock == nil || !g.app.dock.Active() {
+	if !g.app.dockingActive() {
 		return
 	}
 	go func() {

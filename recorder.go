@@ -18,17 +18,19 @@ import (
 // ffmpeg. Frames arrive as JPEGs; audio as AAC/ADTS packets. Both inputs use
 // wall-clock timestamps so they stay in sync without a fixed frame rate.
 type recorder struct {
-	mu      sync.Mutex
-	cmd     *exec.Cmd
-	video   io.WriteCloser
-	audio   io.WriteCloser
-	path    string
-	started time.Time
-	frames  int
-	cancel  context.CancelFunc
-	done    chan struct{}
-	waited  chan struct{} // closed when ffmpeg exits
-	err     error
+	mu       sync.Mutex
+	starting bool
+	cmd      *exec.Cmd
+	video    io.WriteCloser
+	audio    io.WriteCloser
+	path     string
+	started  time.Time
+	frames   int
+	cancel   context.CancelFunc
+	done     chan struct{}
+	helpers  *sync.WaitGroup
+	waited   chan struct{} // closed when ffmpeg exits
+	err      error
 }
 
 // MaxRecording bounds one local recording.
@@ -64,25 +66,50 @@ func (r *recorder) Start(parent context.Context, dir string) (string, error) {
 		return "", fmt.Errorf("recording needs ffmpeg (brew install ffmpeg)")
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.cmd != nil {
+		r.mu.Unlock()
 		return "", fmt.Errorf("already recording %s", filepath.Base(r.path))
 	}
+	if r.starting {
+		r.mu.Unlock()
+		return "", fmt.Errorf("recording is already starting")
+	}
 	if f := media.Frame(); len(f.Data) == 0 || time.Since(f.At) > 3*time.Second {
+		r.mu.Unlock()
 		return "", fmt.Errorf("no live video to record")
 	}
+	r.starting = true
+	r.mu.Unlock()
+
 	path := filepath.Join(dir, "scout-"+time.Now().Format("2006-01-02-150405")+".mp4")
 	ctx, cancel := context.WithTimeout(parent, MaxRecording+15*time.Second)
 
-	// Wait briefly for microphone packets; record video only without them.
+	// Wait briefly for microphone packets without holding r.mu (status polls lock r.mu).
 	audioCh, unsub := media.SubscribeAudio()
 	var firstAudio []byte
+	timer := time.NewTimer(1500 * time.Millisecond)
 	select {
 	case firstAudio = <-audioCh:
-	case <-time.After(1500 * time.Millisecond):
+	case <-parent.Done():
+	case <-timer.C:
 	}
+	timer.Stop()
 	if firstAudio == nil {
 		unsub()
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.starting = false
+	startedAudio := false
+	defer func() {
+		if firstAudio != nil && !startedAudio {
+			unsub()
+		}
+	}()
+	if parent.Err() != nil {
+		cancel()
+		return "", parent.Err()
 	}
 
 	args := []string{"-hide_banner", "-loglevel", "error", "-y",
@@ -119,20 +146,26 @@ func (r *recorder) Start(parent context.Context, dir string) (string, error) {
 		}
 		return "", fmt.Errorf("ffmpeg: %w", err)
 	}
+	done := make(chan struct{})
+	var helpers sync.WaitGroup
 	r.cmd, r.video, r.path, r.started, r.frames, r.cancel, r.err = cmd, video, path, time.Now(), 0, cancel, nil
-	r.done = make(chan struct{})
+	r.done = done
+	r.helpers = &helpers
 	waited := make(chan struct{})
 	r.waited = waited
 	if audioW != nil {
 		r.audio = audioW
-		go func() {
+		startedAudio = true
+		helpers.Add(1)
+		go func(done <-chan struct{}, wg *sync.WaitGroup) {
+			defer wg.Done()
 			defer unsub()
 			_, _ = audioW.Write(firstAudio)
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				case <-r.done:
+				case <-done:
 					return
 				case p := <-audioCh:
 					if _, err := audioW.Write(p); err != nil {
@@ -140,9 +173,13 @@ func (r *recorder) Start(parent context.Context, dir string) (string, error) {
 					}
 				}
 			}
-		}()
+		}(done, &helpers)
 	}
-	go r.feed(ctx, video)
+	helpers.Add(1)
+	go func(done <-chan struct{}, wg *sync.WaitGroup) {
+		defer wg.Done()
+		r.feed(ctx, video, done)
+	}(done, &helpers)
 	go func() {
 		defer close(waited)
 		err := cmd.Wait()
@@ -158,7 +195,7 @@ func (r *recorder) Start(parent context.Context, dir string) (string, error) {
 }
 
 // feed writes each new camera frame to ffmpeg until stopped.
-func (r *recorder) feed(ctx context.Context, w io.Writer) {
+func (r *recorder) feed(ctx context.Context, w io.Writer, done <-chan struct{}) {
 	t := time.NewTicker(20 * time.Millisecond)
 	defer t.Stop()
 	var last time.Time
@@ -168,7 +205,7 @@ func (r *recorder) feed(ctx context.Context, w io.Writer) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-r.done:
+		case <-done:
 			return
 		case <-limit.C:
 			go func() { _, _ = r.Stop() }()
@@ -192,12 +229,12 @@ func (r *recorder) feed(ctx context.Context, w io.Writer) {
 // Stop finishes the file and returns its path.
 func (r *recorder) Stop() (string, error) {
 	r.mu.Lock()
-	cmd, video, audio, path, cancel, done, waited := r.cmd, r.video, r.audio, r.path, r.cancel, r.done, r.waited
+	cmd, video, audio, path, cancel, done, helpers, waited := r.cmd, r.video, r.audio, r.path, r.cancel, r.done, r.helpers, r.waited
 	if cmd == nil {
 		r.mu.Unlock()
 		return "", fmt.Errorf("not recording")
 	}
-	r.cmd, r.video, r.audio = nil, nil, nil
+	r.cmd, r.video, r.audio, r.done, r.helpers = nil, nil, nil, nil, nil
 	r.mu.Unlock()
 	close(done)
 	_ = video.Close()
@@ -211,6 +248,9 @@ func (r *recorder) Stop() (string, error) {
 		<-waited
 	}
 	cancel()
+	if helpers != nil {
+		helpers.Wait()
+	}
 	r.mu.Lock()
 	err := r.err
 	r.mu.Unlock()
