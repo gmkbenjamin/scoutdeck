@@ -30,7 +30,7 @@ func voiceBinary() (string, error) {
 	}
 	path := filepath.Join(filepath.Dir(exe), "scout-voice")
 	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf("voice helper not found next to the app (%s); build it with scripts/package.py or swiftc voice/main.swift", path)
+		return "", fmt.Errorf("voice helper not found next to the app (%s); build it with python3 scripts/build.py (or scripts/package.py)", path)
 	}
 	return path, nil
 }

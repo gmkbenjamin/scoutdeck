@@ -4,9 +4,9 @@ The Scout app serves this API, and the web app, on `127.0.0.1:8765` by default
 (`-api <loopback:port>` to change it, `-api off` to disable):
 
 ```sh
-go build -o dist/scout .
-./dist/scout -host 192.168.1.97              # window + API + web app
-./dist/scout -host 192.168.1.97 -headless    # API only
+python3 scripts/build.py                      # builds dist/scout, dist/scoutctl (+ scout-voice on Apple Silicon)
+./dist/scout -host 192.168.1.97               # window + API + web app
+./dist/scout -host 192.168.1.97 -headless     # API only
 ```
 
 `-ssh` (default `root@<host>`) enables speaker playback, live power checks and
@@ -117,7 +117,7 @@ Use the documented operations so agents cannot bypass movement expiry.
 ## Agent CLI
 
 ```sh
-go build -o dist/scoutctl ./cmd/scoutctl
+go build -trimpath -o dist/scoutctl ./cmd/scoutctl
 export SCOUT_API_URL=http://127.0.0.1:8765
 # Uses the same SCOUT_API_TOKEN as the running app.
 ./dist/scoutctl status
@@ -216,7 +216,7 @@ persistent low-battery return behavior on the robot.
 ```sh
 go test -race ./...
 go vet ./...
-(cd third_party/goroslib && go test -race -run '^TestScout' .)
+go test -C third_party/goroslib -race -run '^TestScout' .
 ```
 
 These tests use synthetic inputs and loopback mock servers. They do not connect
@@ -230,8 +230,9 @@ Allow incoming connections for the Scout executable in the macOS firewall; use
 `-l YOUR_LAN_IP` only if automatic address selection chooses the wrong interface.
 
 Go's default ad-hoc signing identifier can be `a.out`, which macOS may match to
-an unrelated executable's firewall rule. A distinct identity can be assigned
-after building, before adding the app-specific firewall permission:
+an unrelated executable's firewall rule. `scripts/build.py` and `scripts/package.py`
+assign `com.scout.controller` automatically on macOS; after a raw `go build`,
+apply and reapply it manually before adding firewall permissions:
 
 ```sh
 codesign --force --sign - --identifier com.scout.controller dist/scout

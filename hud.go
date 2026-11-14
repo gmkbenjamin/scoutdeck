@@ -924,7 +924,7 @@ func (h *hud) drawMenu(screen *ebiten.Image, g *Game, w float64) {
 				pair := url + "#pair=" + code
 				if img := h.qr(pair); img != nil {
 					hasQR = true
-					op := &ebiten.DrawImageOptions{}
+					op := &ebiten.DrawImageOptions{Filter: ebiten.FilterNearest}
 					size := 300.0
 					op.GeoM.Scale(size*h.s/float64(img.Bounds().Dx()), size*h.s/float64(img.Bounds().Dy()))
 					op.GeoM.Translate(tx*h.s, cy*h.s)
@@ -1043,20 +1043,44 @@ func (h *hud) drawMenu(screen *ebiten.Image, g *Game, w float64) {
 	}
 }
 
-// qr renders text as a QR code image, cached for the last text.
+// renderQRImage rasterizes s as a crisp square QR code with a 4-module quiet zone.
+// rsc.io/qr's Code.Image returns an unscaled top-left grid inside a Scale-sized
+// rectangle, so modules are rasterized directly from code.Black.
+func renderQRImage(s string) (*image.NRGBA, error) {
+	code, err := qr.Encode(s, qr.M)
+	if err != nil {
+		return nil, err
+	}
+	const pad, scale = 4, 8
+	dim := (code.Size + pad*2) * scale
+	rgba := image.NewNRGBA(image.Rect(0, 0, dim, dim))
+	for y := 0; y < dim; y++ {
+		my := y/scale - pad
+		for x := 0; x < dim; x++ {
+			mx := x/scale - pad
+			if code.Black(mx, my) {
+				rgba.SetNRGBA(x, y, color.NRGBA{0, 0, 0, 255})
+			} else {
+				rgba.SetNRGBA(x, y, color.NRGBA{255, 255, 255, 255})
+			}
+		}
+	}
+	return rgba, nil
+}
+
+// qr renders text as a crisp QR code image, cached for the last text.
 func (h *hud) qr(s string) *ebiten.Image {
 	if s == h.qrText && h.qrImage != nil {
 		return h.qrImage
 	}
-	code, err := qr.Encode(s, qr.M)
+	rgba, err := renderQRImage(s)
 	if err != nil {
 		return nil
 	}
-	code.Scale = 8
 	if h.qrImage != nil {
 		h.qrImage.Deallocate()
 	}
-	h.qrText, h.qrImage = s, ebiten.NewImageFromImage(code.Image())
+	h.qrText, h.qrImage = s, ebiten.NewImageFromImage(rgba)
 	return h.qrImage
 }
 

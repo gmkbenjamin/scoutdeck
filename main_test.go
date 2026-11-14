@@ -45,3 +45,29 @@ func TestUnfocusedWindowDoesNotPermanentlyBlockAgents(t *testing.T) {
 		t.Fatal("held input on refocus did not stop")
 	}
 }
+
+func TestRenderQRImageFillsCanvas(t *testing.T) {
+	img, err := renderQRImage("https://scout-lab.example.ts.net#pair=123456")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := img.Bounds()
+	// Quiet zone corners must be white.
+	if c := img.NRGBAAt(0, 0); c.R != 255 || c.G != 255 || c.B != 255 {
+		t.Fatalf("expected white quiet zone corner, got %+v", c)
+	}
+	// Bottom-right quadrant beyond half width/height must contain black QR modules
+	// (regression check against rsc.io/qr's unscaled Code.Image bug).
+	hasDarkBottomRight := false
+	for y := b.Dy() / 2; y < b.Dy(); y++ {
+		for x := b.Dx() / 2; x < b.Dx(); x++ {
+			if img.NRGBAAt(x, y).R == 0 {
+				hasDarkBottomRight = true
+				break
+			}
+		}
+	}
+	if !hasDarkBottomRight {
+		t.Fatalf("QR modules missing from bottom-right quadrant (%dx%d)", b.Dx(), b.Dy())
+	}
+}
