@@ -1,4 +1,4 @@
-// scoutctl is a JSON-first client for the local Scout agent API.
+// scoutdeckctl is a JSON-first client for the local ScoutDeck agent API.
 package main
 
 import (
@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/shell-company/scout/internal/docking"
+	"github.com/gmkbenjamin/scoutdeck/internal/docking"
 )
 
 type client struct {
@@ -63,12 +63,12 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: scoutctl status|power|drive|move|turn|stop|dock|dock-status|dock-cancel|light|screenshot|record|speaker|say|video|mic-stream|" +
+		return errors.New("usage: scoutdeckctl status|power|drive|move|turn|stop|dock|dock-status|dock-cancel|light|screenshot|record|speaker|say|video|mic-stream|" +
 			"pose|events|guard|record-start|record-stop|routes|patrol|camera|health|mcp|shutdown; use COMMAND -h")
 	}
 	command := os.Args[1]
 	fs := flag.NewFlagSet(command, flag.ContinueOnError)
-	base := fs.String("url", envOr("SCOUT_API_URL", "http://127.0.0.1:8765"), "loopback Scout API URL (or SCOUT_API_URL)")
+	base := fs.String("url", envFirst("http://127.0.0.1:8765", "SCOUTDECK_API_URL", "SCOUT_API_URL"), "loopback ScoutDeck API URL (or SCOUTDECK_API_URL)")
 	x := fs.Float64("x", 0, "strafe velocity, -0.2..0.2")
 	y := fs.Float64("y", 0, "forward velocity, -0.3..0.3")
 	z := fs.Float64("z", 0, "rotation, -1.8..1.8")
@@ -106,17 +106,9 @@ func run() error {
 	if u.Scheme != "http" || ip == nil || !ip.IsLoopback() || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
 		return errors.New("URL must be plain HTTP on a literal loopback IP; use an SSH tunnel for remote access")
 	}
-	token := os.Getenv("SCOUT_API_TOKEN")
+	token := resolveAPIToken()
 	if token == "" {
-		// The Scout app saves its token here (mode 0600) when none is given.
-		if dir, err := os.UserConfigDir(); err == nil {
-			if data, err := os.ReadFile(filepath.Join(dir, "Scout", "api-token")); err == nil {
-				token = strings.TrimSpace(string(data))
-			}
-		}
-	}
-	if token == "" {
-		return errors.New("SCOUT_API_TOKEN is required (or run the Scout app once to create its saved token)")
+		return errors.New("SCOUTDECK_API_TOKEN is required (or run the ScoutDeck app once to create its saved token)")
 	}
 	c := client{strings.TrimRight(*base, "/"), token, &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect refused") }}}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -157,7 +149,7 @@ func run() error {
 		method, path = "POST", "/v1/record/"+strings.TrimPrefix(command, "record-")
 	case "patrol":
 		if *name == "" {
-			return errors.New("patrol needs -name ROUTE (see scoutctl routes)")
+			return errors.New("patrol needs -name ROUTE (see scoutdeckctl routes)")
 		}
 		method, path = "POST", "/v1/routes/"+url.PathEscape(*name)+"/run"
 	case "camera":
@@ -321,9 +313,29 @@ func run() error {
 	}
 	return err
 }
-func envOr(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
+func envFirst(fallback string, keys ...string) string {
+	for _, key := range keys {
+		if v := os.Getenv(key); v != "" {
+			return v
+		}
 	}
 	return fallback
+}
+
+func resolveAPIToken() string {
+	if t := envFirst("", "SCOUTDECK_API_TOKEN", "SCOUT_API_TOKEN"); t != "" {
+		return t
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	for _, app := range []string{"ScoutDeck", "Scout"} {
+		if data, err := os.ReadFile(filepath.Join(dir, app, "api-token")); err == nil {
+			if t := strings.TrimSpace(string(data)); t != "" {
+				return t
+			}
+		}
+	}
+	return ""
 }

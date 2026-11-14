@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/aler9/goroslib"
-	"github.com/shell-company/scout/internal/events"
+	"github.com/gmkbenjamin/scoutdeck/internal/events"
 )
 
 // Guard mode watches the camera while the robot sits still: the Mac compares
@@ -136,7 +136,7 @@ func (a *application) alert(kind, text string, score float64, box *events.Box) {
 	log.Printf("alert: %s", text)
 	a.notices.add(text, noticeBad)
 	if g.Notify {
-		notifyMac("Scout: "+events.Label(kind), text+" at "+e.At.Format("15:04:05"))
+		notifyMac("ScoutDeck: "+events.Label(kind), text+" at "+e.At.Format("15:04:05"))
 	}
 }
 

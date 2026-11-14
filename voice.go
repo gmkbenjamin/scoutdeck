@@ -15,7 +15,7 @@ import (
 
 var flagVoice = flag.Bool("voice", false, "start the on-device voice assistant once connected (toggle with V)")
 
-// voiceAssistant runs scout-voice, the on-device (Apple Intelligence) voice
+// voiceAssistant runs scoutdeck-voice, the on-device (Apple Intelligence) voice
 // helper, and turns its JSON events into HUD state and notices.
 type voiceAssistant struct {
 	mu    sync.Mutex
@@ -28,7 +28,7 @@ func voiceBinary() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(filepath.Dir(exe), "scout-voice")
+	path := filepath.Join(filepath.Dir(exe), "scoutdeck-voice")
 	if _, err := os.Stat(path); err != nil {
 		return "", fmt.Errorf("voice helper not found next to the app (%s); build it with python3 scripts/build.py (or scripts/package.py)", path)
 	}
@@ -73,7 +73,7 @@ func (a *application) toggleVoice() {
 	}
 	cmd := exec.CommandContext(a.ctx, path)
 	// The token goes through the environment, never the command line.
-	cmd.Env = append(os.Environ(), "SCOUT_API_URL=http://"+*flagAPI, "SCOUT_API_TOKEN="+a.apiToken)
+	cmd.Env = append(os.Environ(), "SCOUTDECK_API_URL=http://"+*flagAPI, "SCOUTDECK_API_TOKEN="+a.apiToken)
 	cmd.Stderr = os.Stderr
 	out, err := cmd.StdoutPipe()
 	if err != nil {

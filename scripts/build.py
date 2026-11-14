@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build standalone Scout binaries into dist/ (or --out)."""
+"""Build standalone ScoutDeck binaries into dist/ (or --out)."""
 import sys
 
 sys.dont_write_bytecode = True
@@ -51,11 +51,11 @@ def build_go(root: pathlib.Path, out_path: pathlib.Path, package: str, env: dict
 
 def build_voice(root: pathlib.Path, out_path: pathlib.Path, target_os: str, target_arch: str,
                 skip: bool = False) -> bool:
-    """Compile scout-voice on Apple Silicon macOS (requires macOS 26+ SDK)."""
+    """Compile scoutdeck-voice on Apple Silicon macOS (requires macOS 26+ SDK)."""
     if skip or target_os != 'darwin' or target_arch != 'arm64' or platform.system().lower() != 'darwin':
         return False
     if shutil.which('swiftc') is None:
-        raise SystemExit('swiftc is required for scout-voice on Apple Silicon macOS (pass --no-voice to skip)')
+        raise SystemExit('swiftc is required for scoutdeck-voice on Apple Silicon macOS (pass --no-voice to skip)')
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         subprocess.run(
@@ -65,7 +65,7 @@ def build_voice(root: pathlib.Path, out_path: pathlib.Path, target_os: str, targ
         )
     except subprocess.CalledProcessError as exc:
         raise SystemExit(
-            'Failed to build scout-voice (requires macOS 26+ SDK / Xcode; pass --no-voice to skip)'
+            'Failed to build scoutdeck-voice (requires macOS 26+ SDK / Xcode; pass --no-voice to skip)'
         ) from exc
     return True
 
@@ -78,11 +78,11 @@ def sign_darwin(path: pathlib.Path, identifier: str, target_os: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Build scout, scoutctl and (on Apple Silicon macOS) scout-voice.')
+    parser = argparse.ArgumentParser(description='Build scoutdeck, scoutdeckctl and (on Apple Silicon macOS) scoutdeck-voice.')
     parser.add_argument('--os', choices=['darwin', 'windows', 'linux'])
     parser.add_argument('--arch', choices=['arm64', 'amd64'])
     parser.add_argument('--out', default='dist', help='output directory (default: dist)')
-    parser.add_argument('--no-voice', action='store_true', help='skip building scout-voice on Apple Silicon macOS')
+    parser.add_argument('--no-voice', action='store_true', help='skip building scoutdeck-voice on Apple Silicon macOS')
     args = parser.parse_args()
 
     target_os, target_arch = resolve_target(args.os, args.arch)
@@ -96,18 +96,18 @@ def main() -> None:
     ext = '.exe' if target_os == 'windows' else ''
     env = build_env(target_os, target_arch)
 
-    app_bin = out / ('scout' + ext)
-    cli_bin = out / ('scoutctl' + ext)
-    voice_bin = out / 'scout-voice'
+    app_bin = out / ('scoutdeck' + ext)
+    cli_bin = out / ('scoutdeckctl' + ext)
+    voice_bin = out / 'scoutdeck-voice'
 
     build_go(root, app_bin, '.', env)
-    build_go(root, cli_bin, './cmd/scoutctl', env)
+    build_go(root, cli_bin, './cmd/scoutdeckctl', env)
     built_voice = build_voice(root, voice_bin, target_os, target_arch, skip=args.no_voice)
 
-    sign_darwin(app_bin, 'com.scout.controller', target_os)
-    sign_darwin(cli_bin, 'com.scout.controller.scoutctl', target_os)
+    sign_darwin(app_bin, 'com.scoutdeck.controller', target_os)
+    sign_darwin(cli_bin, 'com.scoutdeck.controller.scoutdeckctl', target_os)
     if built_voice:
-        sign_darwin(voice_bin, 'com.scout.controller.voice', target_os)
+        sign_darwin(voice_bin, 'com.scoutdeck.controller.voice', target_os)
 
     print(app_bin)
     print(cli_bin)

@@ -9,7 +9,7 @@ import (
 	"github.com/aler9/goroslib"
 	"github.com/aler9/goroslib/pkg/msgs/nav_msgs"
 	"github.com/aler9/goroslib/pkg/msgs/sensor_msgs"
-	"github.com/shell-company/scout/internal/motion"
+	"github.com/gmkbenjamin/scoutdeck/internal/motion"
 )
 
 // sensors holds the latest readings from the robot's sensors and the

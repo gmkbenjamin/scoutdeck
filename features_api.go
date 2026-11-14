@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shell-company/scout/internal/agent"
-	"github.com/shell-company/scout/internal/motion"
+	"github.com/gmkbenjamin/scoutdeck/internal/agent"
+	"github.com/gmkbenjamin/scoutdeck/internal/motion"
 )
 
 // offlineOK lists API paths that work without a robot connection.
@@ -385,7 +385,7 @@ func (a *application) Say(ctx context.Context, text string) error {
 	if a.audio == nil {
 		return fmt.Errorf("the robot's speaker needs SSH")
 	}
-	tmp, err := os.MkdirTemp("", "scout-say-")
+	tmp, err := os.MkdirTemp("", "scoutdeck-say-")
 	if err != nil {
 		return err
 	}

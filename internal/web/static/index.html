@@ -7,9 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Scout">
+<meta name="apple-mobile-web-app-title" content="ScoutDeck">
 <meta name="referrer" content="no-referrer">
-<title>Scout</title>
+<title>ScoutDeck</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon.png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -30,7 +30,7 @@
   <header class="topbar">
     <div class="tb-left">
       <span class="dot" id="liveDot"></span>
-      <strong class="brand">SCOUT</strong>
+      <strong class="brand">SCOUTDECK</strong>
       <span class="muted host" id="host"></span>
       <span class="live" id="live">—</span>
       <span class="chips" id="chips"></span>
@@ -124,7 +124,7 @@
 <div class="overlay" id="offline" hidden>
   <div class="card">
     <h2>Robot offline</h2>
-    <p class="muted" id="offlineText">The Mac app is running but isn't connected to the robot. Reconnect it in the Scout window on the Mac.</p>
+    <p class="muted" id="offlineText">The Mac app is running but isn't connected to the robot. Reconnect it in the ScoutDeck window on the Mac.</p>
     <button class="btn" id="offlineEvents">View events</button>
   </div>
 </div>
@@ -132,8 +132,8 @@
 <div class="overlay" id="pairing" hidden>
   <form class="card" id="pairForm" autocomplete="off">
     <img src="/apple-touch-icon.png" alt="" class="card-icon">
-    <h2>Pair with Scout</h2>
-    <p class="muted">On the Mac, open Scout's <b>Robot menu → Phone &amp; tablet</b> (press M). Scan the QR code, or enter the 6-digit one-time code shown there.</p>
+    <h2>Pair with ScoutDeck</h2>
+    <p class="muted">On the Mac, open ScoutDeck's <b>Robot menu → Phone &amp; tablet</b> (press M). Scan the QR code, or enter the 6-digit one-time code shown there.</p>
     <input id="pairCode" type="text" inputmode="numeric" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" placeholder="6-digit code" aria-label="One-time code">
     <button class="btn primary" type="submit">Pair this device</button>
     <p class="error" id="pairError"></p>
@@ -141,7 +141,7 @@
 </div>
 
 <div class="overlay sheet-overlay" id="menu" hidden>
-  <div class="sheet" role="dialog" aria-label="Scout">
+  <div class="sheet" role="dialog" aria-label="ScoutDeck">
     <nav class="tabs" id="tabs">
       <button data-tab="events">Events</button>
       <button data-tab="patrols">Patrols</button>
@@ -177,7 +177,7 @@
 
     <section class="tab" data-panel="clips">
       <div class="tab-head"><h3>Recordings on the robot</h3><button class="btn small-btn" id="clipsReload">Refresh</button></div>
-      <p class="muted small">Clips and snapshots the robot saved itself. Recordings you make with Rec are saved on the Mac in Movies › Scout.</p>
+      <p class="muted small">Clips and snapshots the robot saved itself. Recordings you make with Rec are saved on the Mac in Movies › ScoutDeck.</p>
       <div class="clip-list" id="clipList"></div>
     </section>
 
@@ -200,7 +200,7 @@
         <label class="setting-row"><span>Dock when battery is at or below</span>
           <select id="adAt"><option value="10">10%</option><option value="15">15%</option><option value="20">20%</option><option value="25">25%</option><option value="30">30%</option><option value="35">35%</option><option value="40">40%</option><option value="45">45%</option><option value="50">50%</option></select>
         </label>
-        <p class="muted small">Works while the Scout app on the Mac is running. You get a 30-second warning; driving postpones it.</p>
+        <p class="muted small">Works while the ScoutDeck app on the Mac is running. You get a 30-second warning; driving postpones it.</p>
       </div>
       <div class="setting">
         <label class="setting-row"><span>Obstacle guard while driving</span><input type="checkbox" id="ogOn"></label>
@@ -220,7 +220,7 @@
         <button class="btn" id="fullBtn">Full screen</button>
         <button class="btn" id="unpairBtn">Unpair this device</button>
       </div>
-      <p class="muted small">Paired with the Scout app on your Mac. Robot maintenance (Wi-Fi, reset) is in the Mac app.</p>
+      <p class="muted small">Paired with the ScoutDeck app on your Mac. Robot maintenance (Wi-Fi, reset) is in the Mac app.</p>
     </section>
   </div>
 </div>

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 // Obstacle guard distances, in metres from the front time-of-flight sensor.

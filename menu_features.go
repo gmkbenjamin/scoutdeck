@@ -14,7 +14,7 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
-	"github.com/shell-company/scout/internal/motion"
+	"github.com/gmkbenjamin/scoutdeck/internal/motion"
 )
 
 // featureMenu holds data loaded in the background for the newer menu pages.

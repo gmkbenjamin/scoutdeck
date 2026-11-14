@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 func ready(pads ...Pad) (*Mapper, Frame) {

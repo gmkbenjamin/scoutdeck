@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 type API struct {
@@ -311,7 +311,7 @@ func (a *API) video(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rc := http.NewResponseController(w)
-	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=scout-frame")
+	w.Header().Set("Content-Type", "multipart/x-mixed-replace; boundary=scoutdeck-frame")
 	t := time.NewTicker(control.Interval)
 	defer t.Stop()
 	var last time.Time
@@ -329,7 +329,7 @@ func (a *API) video(w http.ResponseWriter, r *http.Request) {
 			}
 			last = f.At
 			_ = rc.SetWriteDeadline(time.Now().Add(2 * time.Second))
-			if _, err := fmt.Fprintf(w, "--scout-frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n", len(f.Data)); err != nil {
+			if _, err := fmt.Fprintf(w, "--scoutdeck-frame\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\n\r\n", len(f.Data)); err != nil {
 				return
 			}
 			if _, err := w.Write(f.Data); err != nil {
@@ -415,11 +415,11 @@ func fail(w http.ResponseWriter, status int, err error) {
 
 // SessionCookie holds the web app's session. Its value is derived from the API
 // token, so sessions survive restarts and rotating the token revokes them.
-const SessionCookie = "scout_session"
+const SessionCookie = "scoutdeck_session"
 
 func SessionValue(token string) string {
 	mac := hmac.New(sha256.New, []byte(token))
-	mac.Write([]byte("scout-web-session-v1"))
+	mac.Write([]byte("scoutdeck-web-session-v1"))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 

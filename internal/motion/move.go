@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 // Goal kinds.

@@ -21,9 +21,9 @@ import (
 	"golang.org/x/image/font/gofont/goregular"
 	"rsc.io/qr"
 
-	"github.com/shell-company/scout/internal/agent"
-	"github.com/shell-company/scout/internal/docking"
-	"github.com/shell-company/scout/internal/motion"
+	"github.com/gmkbenjamin/scoutdeck/internal/agent"
+	"github.com/gmkbenjamin/scoutdeck/internal/docking"
+	"github.com/gmkbenjamin/scoutdeck/internal/motion"
 )
 
 var (
@@ -339,8 +339,8 @@ func (h *hud) drawTopBar(screen *ebiten.Image, g *Game, w float64, videoLive boo
 		dot, status = colWarn, "NO VIDEO"
 	}
 	h.dot(screen, 30, 32, 6, dot)
-	h.glow(screen, "SCOUT", 25, 48, 32, colText, text.AlignStart)
-	x := 48 + h.width("SCOUT", 25, true) + 18
+	h.glow(screen, "SCOUTDECK", 25, 48, 32, colText, text.AlignStart)
+	x := 48 + h.width("SCOUTDECK", 25, true) + 18
 	if t.Host != "" && !g.inputTest {
 		h.mono(screen, t.Host, 17, x, 32, colDim, text.AlignStart)
 		x += h.monoWidth(t.Host, 17) + 20
@@ -675,7 +675,7 @@ func (h *hud) drawConnect(screen *ebiten.Image, g *Game, w float64) {
 	}
 	x, y := (w-pw)/2, (1080-ph)/2
 	h.panel(screen, x, y, pw, ph, color.NRGBA{24, 27, 33, 255})
-	h.text(screen, "Scout", 44, true, x+40, y+60, colText, text.AlignStart)
+	h.text(screen, "ScoutDeck", 44, true, x+40, y+60, colText, text.AlignStart)
 	h.text(screen, "Connect to your robot", 22, false, x+40, y+104, colDim, text.AlignStart)
 	cy := y + 140
 	for _, line := range noteLines {
@@ -775,6 +775,8 @@ func (h *hud) drawMenu(screen *ebiten.Image, g *Game, w float64) {
 	scanning, nets, status, bad := m.snapshot()
 	pw, ph := 820.0, 600.0
 	switch m.page {
+	case menuPhone:
+		pw, ph = 900, 600
 	case menuRestore:
 		pw, ph = 900, 800
 	case menuMain:
@@ -942,7 +944,7 @@ func (h *hud) drawMenu(screen *ebiten.Image, g *Game, w float64) {
 			if hasQR {
 				lines = append(lines,
 					phoneLine{"Scan with the iPhone or iPad camera", colText, true},
-					phoneLine{"Opens Scout in Safari with a one-time pairing code.", colDim, false},
+					phoneLine{"Opens ScoutDeck in Safari with a one-time pairing code.", colDim, false},
 					phoneLine{"Then Share > Add to Home Screen for a full-screen app.", colDim, false},
 					phoneLine{"", colDim, false},
 				)
@@ -977,18 +979,18 @@ func (h *hud) drawMenu(screen *ebiten.Image, g *Game, w float64) {
 			}
 			cy += 340
 		case !pa.Tailscale:
-			para("Tailscale is needed to reach Scout from a phone or tablet.", colText)
+			para("Tailscale is needed to reach ScoutDeck from a phone or tablet.", colText)
 			if pa.Err != "" {
 				para(pa.Err, colBad)
 			}
 			para("Install Tailscale on this Mac and on the iPhone/iPad, sign in to the same account, then press R.", colDim)
 			para("Or press L to allow phones on your home Wi-Fi (unencrypted HTTP on your network; devices still pair).", colDim)
-			para("On this Mac you can always press B to open Scout in a browser.", colDim)
+			para("On this Mac you can always press B to open ScoutDeck in a browser.", colDim)
 		default:
-			para("Tailscale is running on this Mac ("+pa.DNSName+"), but Scout isn't shared on your tailnet yet.", colText)
+			para("Tailscale is running on this Mac ("+pa.DNSName+"), but ScoutDeck isn't shared on your tailnet yet.", colText)
 			para("Press T to run: tailscale serve --bg --https="+pa.Port+" http://"+*flagAPI, colAccent)
 			para("Or press L to allow phones on your home Wi-Fi (unencrypted HTTP; devices still pair).", colDim)
-			para("This gives Scout a private HTTPS address only your own Tailscale devices can reach. Other services you already share are left alone.", colDim)
+			para("This gives ScoutDeck a private HTTPS address only your own Tailscale devices can reach. Other services you already share are left alone.", colDim)
 		}
 	case menuRestore:
 		title, footer = "Factory restore", "Type RESTORE, then Enter      Esc cancel"

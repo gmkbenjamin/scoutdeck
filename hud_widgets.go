@@ -14,8 +14,8 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
 	"github.com/hajimehoshi/ebiten/v2/vector"
 
-	"github.com/shell-company/scout/internal/events"
-	"github.com/shell-company/scout/internal/motion"
+	"github.com/gmkbenjamin/scoutdeck/internal/events"
+	"github.com/gmkbenjamin/scoutdeck/internal/motion"
 )
 
 // Drawing helpers in 1080p units.

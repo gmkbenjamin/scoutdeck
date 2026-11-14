@@ -37,7 +37,7 @@ func (m *Media) Save(dir string) (string, error) {
 	if len(f.Data) == 0 {
 		return "", fmt.Errorf("no camera frame available")
 	}
-	file, err := os.CreateTemp(dir, "scout-*.jpg")
+	file, err := os.CreateTemp(dir, "scoutdeck-*.jpg")
 	if err != nil {
 		return "", err
 	}

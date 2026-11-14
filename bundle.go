@@ -30,9 +30,9 @@ func prepareBundleEnv() {
 	os.Setenv("PATH", path)
 }
 
-// screenshotDir is the working directory for terminal use and
-// ~/Pictures/Scout for the app bundle, whose working directory is /.
-func screenshotDir() string {
+// bundleSubdir returns the working directory for terminal use and
+// ~/parent/ScoutDeck for the app bundle, whose working directory is /.
+func bundleSubdir(parent string) string {
 	if !inAppBundle() {
 		return "."
 	}
@@ -40,9 +40,13 @@ func screenshotDir() string {
 	if err != nil {
 		return "."
 	}
-	dir := filepath.Join(home, "Pictures", "Scout")
+	dir := filepath.Join(home, parent, "ScoutDeck")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "."
 	}
 	return dir
 }
+
+// screenshotDir is the working directory for terminal use and
+// ~/Pictures/ScoutDeck for the app bundle, whose working directory is /.
+func screenshotDir() string { return bundleSubdir("Pictures") }

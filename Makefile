@@ -17,13 +17,13 @@ test:
 icon:
 	@tmp=$$(mktemp -d) && \
 	swift scripts/make_icon.swift assets/icon-1024.png && \
-	mkdir -p "$$tmp/Scout.iconset" && \
+	mkdir -p "$$tmp/ScoutDeck.iconset" && \
 	for s in 16 32 128 256 512; do \
-		sips -z $$s $$s assets/icon-1024.png --out "$$tmp/Scout.iconset/icon_$${s}x$${s}.png" >/dev/null && \
+		sips -z $$s $$s assets/icon-1024.png --out "$$tmp/ScoutDeck.iconset/icon_$${s}x$${s}.png" >/dev/null && \
 		s2=$$((s * 2)) && \
-		sips -z $$s2 $$s2 assets/icon-1024.png --out "$$tmp/Scout.iconset/icon_$${s}x$${s}@2x.png" >/dev/null; \
+		sips -z $$s2 $$s2 assets/icon-1024.png --out "$$tmp/ScoutDeck.iconset/icon_$${s}x$${s}@2x.png" >/dev/null; \
 	done && \
-	iconutil -c icns "$$tmp/Scout.iconset" -o assets/Scout.icns && \
+	iconutil -c icns "$$tmp/ScoutDeck.iconset" -o assets/ScoutDeck.icns && \
 	rm -rf "$$tmp"
 
 clean:

@@ -25,7 +25,7 @@ import (
 	"github.com/aler9/goroslib/pkg/msg"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 var (
@@ -107,7 +107,7 @@ func enqueueCameraFrame(frame []byte) {
 }
 
 func printUsage() {
-	fmt.Fprintf(os.Stderr, "go-scout — Moorebot Scout controller\n\n")
+	fmt.Fprintf(os.Stderr, "scoutdeck — Moorebot Scout controller\n\n")
 	fmt.Fprintf(os.Stderr, "Usage: %s [options]\n\n", os.Args[0])
 	fmt.Fprintf(os.Stderr, "Options:\n")
 	flag.PrintDefaults()
@@ -120,7 +120,7 @@ Keyboard controls (always available):
   H           return to charging station
   9/0         night vision brightness -/+
   Space       save screenshot
-  R           record video to ~/Movies/Scout
+  R           record video to ~/Movies/ScoutDeck
   G           guard mode (motion, people and pet alerts)
   Tab / F     clean HUD / full screen
   ?           show/hide controls

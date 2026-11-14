@@ -1,5 +1,5 @@
 "use strict";
-// Scout web HUD. Talks to the Mac app's agent API with a same-origin session cookie.
+// ScoutDeck web HUD. Talks to the Mac app's agent API with a same-origin session cookie.
 
 const $ = (id) => document.getElementById(id);
 // Touch devices (iPhone, iPad, even with a keyboard) get the on-screen joystick.
@@ -13,7 +13,7 @@ const STEP_FOR_PHASE = { 1: 0, 8: 0, 2: 1, 3: 2, 4: 2 };
 const state = {
   paired: false,
   connected: false,
-  speed: Number(localStorage.getItem("scout.speed") ?? 1),
+  speed: Number(localStorage.getItem("scoutdeck.speed") ?? localStorage.getItem("scout.speed") ?? 1),
   joy: { x: 0, y: 0 },
   strafe: 0,
   keys: new Set(),
@@ -173,7 +173,7 @@ async function pollStatus() {
   } catch (err) {
     if (err.message !== "not paired") {
       app.dataset.state = "offline";
-      $("stageMsg").textContent = "Can't reach the Scout app on the Mac";
+      $("stageMsg").textContent = "Can't reach the ScoutDeck app on the Mac";
     }
   }
 }
@@ -333,7 +333,7 @@ async function snapshot() {
     const url = URL.createObjectURL(await res.blob());
     const a = document.createElement("a");
     a.href = url;
-    a.download = "scout-" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
+    a.download = "scoutdeck-" + new Date().toISOString().replace(/[:.]/g, "-") + ".jpg";
     document.body.append(a);
     a.click();
     a.remove();
@@ -343,7 +343,7 @@ async function snapshot() {
 }
 function setSpeed(i) {
   state.speed = Math.max(0, Math.min(2, i));
-  localStorage.setItem("scout.speed", state.speed);
+  localStorage.setItem("scoutdeck.speed", state.speed);
   document.querySelectorAll(".speed button").forEach((b) => b.setAttribute("aria-checked", String(Number(b.dataset.speed) === state.speed)));
 }
 

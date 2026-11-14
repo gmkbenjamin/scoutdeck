@@ -81,7 +81,7 @@ func (r *recorder) Start(parent context.Context, dir string) (string, error) {
 	r.starting = true
 	r.mu.Unlock()
 
-	path := filepath.Join(dir, "scout-"+time.Now().Format("2006-01-02-150405")+".mp4")
+	path := filepath.Join(dir, "scoutdeck-"+time.Now().Format("2006-01-02-150405")+".mp4")
 	ctx, cancel := context.WithTimeout(parent, MaxRecording+15*time.Second)
 
 	// Wait briefly for microphone packets without holding r.mu (status polls lock r.mu).

@@ -1,4 +1,4 @@
-// Renders the Scout app icon as a 1024x1024 PNG.
+// Renders the ScoutDeck app icon as a 1024x1024 PNG.
 // Usage: swift scripts/make_icon.swift out.png
 import AppKit
 import CoreGraphics

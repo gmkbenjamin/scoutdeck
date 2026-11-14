@@ -9,8 +9,8 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/shell-company/scout/internal/control"
-	"github.com/shell-company/scout/internal/manual"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/manual"
 )
 
 func readInput() manual.Frame {

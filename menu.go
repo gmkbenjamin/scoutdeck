@@ -10,7 +10,7 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
-	"github.com/shell-company/scout/internal/agent"
+	"github.com/gmkbenjamin/scoutdeck/internal/agent"
 )
 
 // textField is a single-line keyboard input.

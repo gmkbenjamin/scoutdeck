@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shell-company/scout/internal/docking"
+	"github.com/gmkbenjamin/scoutdeck/internal/docking"
 )
 
 type SSHAudio struct {
@@ -36,7 +36,7 @@ func (a *SSHAudio) command(ctx context.Context, command string) *exec.Cmd {
 		// The robot takes 2-3 s per SSH handshake; reuse one connection so the
 		// once-per-second charging probe stays well inside its deadline.
 		// The socket lives in the user's private ~/.ssh, not a shared temp dir.
-		args = append(args, "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/scout-%C", "-o", "ControlPersist=60")
+		args = append(args, "-o", "ControlMaster=auto", "-o", "ControlPath=~/.ssh/scoutdeck-%C", "-o", "ControlPersist=60")
 	}
 	cmd := exec.CommandContext(ctx, "ssh", append(args, a.destination, command)...)
 	cmd.WaitDelay = time.Second

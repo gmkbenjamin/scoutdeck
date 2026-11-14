@@ -16,8 +16,8 @@ import (
 type phoneAccess struct {
 	Tailscale bool   // CLI found and logged in
 	DNSName   string // this Mac's MagicDNS name
-	URL       string // https URL serving Scout, if configured
-	Port      string // HTTPS port Scout uses on the tailnet
+	URL       string // https URL serving ScoutDeck, if configured
+	Port      string // HTTPS port ScoutDeck uses on the tailnet
 	Err       string
 }
 
@@ -46,7 +46,7 @@ func tailscaleJSON(ctx context.Context, out any, args ...string) error {
 	return json.Unmarshal(data, out)
 }
 
-// checkPhoneAccess finds this Mac's tailnet name and whether Scout is served.
+// checkPhoneAccess finds this Mac's tailnet name and whether ScoutDeck is served.
 func checkPhoneAccess(ctx context.Context, apiAddr string) phoneAccess {
 	_, port, _ := net.SplitHostPort(apiAddr)
 	pa := phoneAccess{Port: port}

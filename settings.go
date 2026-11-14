@@ -63,21 +63,39 @@ func dataDir(name string) (string, error) {
 	return dir, os.MkdirAll(dir, 0o700)
 }
 
-// mediaDir returns ~/Movies/Scout (or the working directory outside the app
+// mediaDir returns ~/Movies/ScoutDeck (or the working directory outside the app
 // bundle, like screenshots), for local video recordings.
-func mediaDir() string {
-	if !inAppBundle() {
-		return screenshotDir()
-	}
-	home, err := os.UserHomeDir()
+func mediaDir() string { return bundleSubdir("Movies") }
+
+const (
+	appConfigDir       = "ScoutDeck"
+	legacyAppConfigDir = "Scout"
+)
+
+var configMigrateMu sync.Mutex
+
+// configDir returns the per-user ScoutDeck config directory, migrating an
+// existing legacy Scout directory on first access when ScoutDeck does not yet
+// exist.
+func configDir() (string, error) {
+	base, err := os.UserConfigDir()
 	if err != nil {
-		return "."
+		return "", err
 	}
-	dir := filepath.Join(home, "Movies", "Scout")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "."
+	dir := filepath.Join(base, appConfigDir)
+	legacy := filepath.Join(base, legacyAppConfigDir)
+	configMigrateMu.Lock()
+	defer configMigrateMu.Unlock()
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
+		if info, lerr := os.Stat(legacy); lerr == nil && info.IsDir() {
+			if rerr := os.Rename(legacy, dir); rerr != nil {
+				if _, serr := os.Stat(dir); serr != nil {
+					fmt.Fprintf(os.Stderr, "migrating config dir %s -> %s: %v\n", legacy, dir, rerr)
+				}
+			}
+		}
 	}
-	return dir
+	return dir, nil
 }
 
 var hostPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.-]*$`)
@@ -91,11 +109,11 @@ func validHost(host string) error {
 }
 
 func settingsPath() (string, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := configDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "Scout", "settings.json"), nil
+	return filepath.Join(dir, "settings.json"), nil
 }
 
 func loadSettings() settings {
@@ -229,21 +247,37 @@ func flagVisitSSH(set *bool) {
 	})
 }
 
-// apiToken returns the API token: SCOUT_API_TOKEN if set, otherwise a random
-// token saved next to the settings (mode 0600) so paired browsers and
-// scoutctl keep working across restarts. The second value says where it is.
+// apiToken returns the API token: SCOUTDECK_API_TOKEN (or legacy SCOUT_API_TOKEN)
+// if set, otherwise a random token saved next to the settings (mode 0600) so paired
+// browsers and scoutdeckctl keep working across restarts. The second value says
+// where it is.
 func apiToken() (string, string, error) {
-	if t := os.Getenv("SCOUT_API_TOKEN"); t != "" {
-		return t, "$SCOUT_API_TOKEN", nil
+	for _, key := range []string{"SCOUTDECK_API_TOKEN", "SCOUT_API_TOKEN"} {
+		if t := os.Getenv(key); t != "" {
+			return t, "$" + key, nil
+		}
 	}
-	path, err := settingsPath()
+	dir, err := configDir()
 	if err != nil {
 		return "", "", err
 	}
-	path = filepath.Join(filepath.Dir(path), "api-token")
+	path := filepath.Join(dir, "api-token")
 	if data, err := os.ReadFile(path); err == nil {
 		if t := strings.TrimSpace(string(data)); len(t) >= 32 {
 			return t, path, nil
+		}
+	}
+	// Fall back to a legacy Scout token if the ScoutDeck config directory
+	// already existed without a token file.
+	legacyPath := filepath.Join(filepath.Dir(dir), legacyAppConfigDir, "api-token")
+	if data, err := os.ReadFile(legacyPath); err == nil {
+		if t := strings.TrimSpace(string(data)); len(t) >= 32 {
+			if err := os.MkdirAll(dir, 0o700); err == nil {
+				if err := os.WriteFile(path, []byte(t+"\n"), 0o600); err == nil {
+					return t, path, nil
+				}
+			}
+			return t, legacyPath, nil
 		}
 	}
 	var b [32]byte

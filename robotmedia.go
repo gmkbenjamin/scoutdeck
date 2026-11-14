@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shell-company/scout/internal/agent"
-	"github.com/shell-company/scout/internal/motion"
+	"github.com/gmkbenjamin/scoutdeck/internal/agent"
+	"github.com/gmkbenjamin/scoutdeck/internal/motion"
 )
 
 // ---------- Camera settings (/ParamNode/video, dynamic_reconfigure) ----------
@@ -195,7 +195,7 @@ func (a *application) DownloadRobotRecording(ctx context.Context, id, dir string
 		return "", err
 	}
 	base := "robot-" + filepath.Base(path)
-	f, err := os.CreateTemp(dir, ".scout-download-*")
+	f, err := os.CreateTemp(dir, ".scoutdeck-download-*")
 	if err != nil {
 		return "", err
 	}

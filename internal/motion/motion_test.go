@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 func TestLimit(t *testing.T) {

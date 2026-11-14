@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/shell-company/scout/internal/control"
-	"github.com/shell-company/scout/internal/manual"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/manual"
 	"sync"
 	"testing"
 	"time"
@@ -47,7 +47,7 @@ func TestUnfocusedWindowDoesNotPermanentlyBlockAgents(t *testing.T) {
 }
 
 func TestRenderQRImageFillsCanvas(t *testing.T) {
-	img, err := renderQRImage("https://scout-lab.example.ts.net#pair=123456")
+	img, err := renderQRImage("https://scoutdeck-lab.example.ts.net#pair=123456")
 	if err != nil {
 		t.Fatal(err)
 	}

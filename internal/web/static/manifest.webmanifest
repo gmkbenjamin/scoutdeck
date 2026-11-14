@@ -1,6 +1,6 @@
 {
-  "name": "Scout",
-  "short_name": "Scout",
+  "name": "ScoutDeck",
+  "short_name": "ScoutDeck",
   "start_url": "/",
   "scope": "/",
   "display": "fullscreen",

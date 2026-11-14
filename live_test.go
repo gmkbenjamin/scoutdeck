@@ -3,7 +3,7 @@
 package main
 
 // Read-only checks against a real robot: go test -tags live -run Live -v .
-// with SCOUT_LIVE_HOST=<robot ip>. Nothing here moves the robot.
+// with SCOUTDECK_LIVE_HOST=<robot ip> (or SCOUT_LIVE_HOST). Nothing here moves the robot.
 
 import (
 	"context"
@@ -18,16 +18,19 @@ import (
 )
 
 func liveNode(t *testing.T) {
-	host := os.Getenv("SCOUT_LIVE_HOST")
+	host := os.Getenv("SCOUTDECK_LIVE_HOST")
 	if host == "" {
-		t.Skip("SCOUT_LIVE_HOST not set")
+		host = os.Getenv("SCOUT_LIVE_HOST")
+	}
+	if host == "" {
+		t.Skip("SCOUTDECK_LIVE_HOST not set")
 	}
 	master := host + ":11311"
 	if err := forceROSHostnameToMasterIP(master, false); err != nil {
 		t.Fatal(err)
 	}
 	var err error
-	n, err = goroslib.NewNode(goroslib.NodeConf{Name: fmt.Sprintf("scout_live_test_%d", os.Getpid()), MasterAddress: master, Host: resolveNodeHost(master, "")})
+	n, err = goroslib.NewNode(goroslib.NodeConf{Name: fmt.Sprintf("scoutdeck_live_test_%d", os.Getpid()), MasterAddress: master, Host: resolveNodeHost(master, "")})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -205,10 +205,28 @@ kbd {
 }
 /* Narrow phones in portrait: stack the action buttons more tightly. */
 @media (orientation: portrait) and (max-width: 430px) {
+  .topbar {
+    gap: 6px;
+    padding-left: calc(var(--sa-l) + 10px);
+    padding-right: calc(var(--sa-r) + 10px);
+  }
   .host { display: none; }
   .batt-label { display: none; }
-  .tb-left, .tb-right { gap: 8px; }
-  :root { --joy: clamp(130px, 42vw, 180px); --btn-h: 42px; }
+  .tb-left, .tb-right { gap: 5px; }
+  .brand, .live, .badge, .batt { white-space: nowrap; flex-shrink: 0; }
+  .brand { font-size: .88em; letter-spacing: .02em; }
+  .live { font-size: .7em; gap: 4px; }
+  .badge { font-size: .7em; padding: 3px 6px; }
+  .batt { font-size: .75em; gap: 4px; }
+  .iconbtn { width: 32px; height: 32px; flex-shrink: 0; }
+  :root { --joy: clamp(128px, 38vw, 170px); --btn-h: 42px; }
+  .controls { gap: 10px; padding-left: calc(var(--sa-l) + 12px); padding-right: calc(var(--sa-r) + 12px); }
+  .actions { min-width: 0; gap: 6px; }
+  .btn-grid { gap: 5px; }
+  .btn-grid .btn { padding: 0 4px; font-size: .78em; line-height: 1.1; }
+  .speed { gap: 2px; padding: 3px; }
+  .speed-label { padding: 0 3px; font-size: .62em; }
+  .speed button { font-size: .78em; padding: 0 2px; }
 }
 
 /* ---------- Landscape phones: compact overlay ---------- */

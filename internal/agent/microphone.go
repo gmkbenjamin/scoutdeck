@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 type Microphone struct {

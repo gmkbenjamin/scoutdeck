@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shell-company/scout/internal/control"
-	"github.com/shell-company/scout/internal/motion"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/motion"
 )
 
 // activity is what the robot is doing on its own right now: a bounded move or

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/aler9/goroslib"
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 func (a *application) cancelDockNative(ctx context.Context) error {

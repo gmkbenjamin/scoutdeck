@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shell-company/scout/internal/control"
-	"github.com/shell-company/scout/internal/docking"
-	"github.com/shell-company/scout/internal/events"
-	"github.com/shell-company/scout/internal/motion"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/docking"
+	"github.com/gmkbenjamin/scoutdeck/internal/events"
+	"github.com/gmkbenjamin/scoutdeck/internal/motion"
 )
 
 func TestActivityIntentAxes(t *testing.T) {

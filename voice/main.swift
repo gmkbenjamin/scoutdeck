@@ -1,12 +1,12 @@
-// scout-voice: on-device voice assistant for Scout.
+// scoutdeck-voice: on-device voice assistant for ScoutDeck.
 //
 // Listens to the robot's microphone (or this Mac's with --source mac), wakes
-// on "Scout", lets Apple's on-device language model act through the Scout
+// on "Scout", lets Apple's on-device language model act through the ScoutDeck
 // agent API, and answers through the robot's speaker. Speech recognition, the
 // language model and speech synthesis all run on this Mac.
 //
-// Environment: SCOUT_API_URL (default http://127.0.0.1:8765), SCOUT_API_TOKEN.
-// Prints one JSON event per line on stdout for the Scout app.
+// Environment: SCOUTDECK_API_URL (default http://127.0.0.1:8765), SCOUTDECK_API_TOKEN (or legacy SCOUT_API_*).
+// Prints one JSON event per line on stdout for the ScoutDeck app.
 
 import AVFoundation
 import Foundation
@@ -24,7 +24,7 @@ enum Event {
     }
 }
 
-// MARK: - Scout API
+// MARK: - ScoutDeck API
 
 struct APIError: Error, CustomStringConvertible {
     let status: Int
@@ -32,19 +32,22 @@ struct APIError: Error, CustomStringConvertible {
     var description: String { message }
 }
 
-final class ScoutAPI: @unchecked Sendable {
+final class ScoutDeckAPI: @unchecked Sendable {
     let base: URL
     let token: String
     let session: URLSession
 
     init() throws {
         let env = ProcessInfo.processInfo.environment
-        base = URL(string: env["SCOUT_API_URL"] ?? "http://127.0.0.1:8765")!
-        var token = env["SCOUT_API_TOKEN"] ?? ""
+        base = URL(string: env["SCOUTDECK_API_URL"] ?? env["SCOUT_API_URL"] ?? "http://127.0.0.1:8765")!
+        var token = env["SCOUTDECK_API_TOKEN"] ?? env["SCOUT_API_TOKEN"] ?? ""
         if token.isEmpty {
-            let file = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/Scout/api-token")
-            token = (try? String(contentsOf: file, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let support = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support")
+            for app in ["ScoutDeck", "Scout"] where token.isEmpty {
+                let file = support.appendingPathComponent(app).appendingPathComponent("api-token")
+                token = (try? String(contentsOf: file, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
         }
         guard !token.isEmpty else { throw APIError(status: 0, message: "no API token") }
         self.token = token
@@ -83,11 +86,11 @@ final class ScoutAPI: @unchecked Sendable {
 // MARK: - Robot actions (shared by the tools)
 
 actor Robot {
-    let api: ScoutAPI
+    let api: ScoutDeckAPI
     let dryRun: Bool
     private var motion: Task<Void, Error>?
 
-    init(api: ScoutAPI, dryRun: Bool) { self.api = api; self.dryRun = dryRun }
+    init(api: ScoutDeckAPI, dryRun: Bool) { self.api = api; self.dryRun = dryRun }
 
     /// Sends short drive leases until `seconds` elapse or `stop()` is called.
     func drive(x: Double, y: Double, z: Double, seconds: Double) async throws {
@@ -347,7 +350,7 @@ struct PatrolTool: Tool {
         do {
             let data = try await robot.api.call("GET", "v1/routes")
             let names = (data["routes"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
-            guard !names.isEmpty else { return "I don't have any patrol routes yet. Record one in the Scout app first." }
+            guard !names.isEmpty else { return "I don't have any patrol routes yet. Record one in the ScoutDeck app first." }
             let wanted = arguments.route.lowercased()
             let name = names.first { !wanted.isEmpty && ($0.lowercased().contains(wanted) || wanted.contains($0.lowercased())) } ?? names[0]
             let path = "v1/routes/" + (name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name) + "/run"
@@ -514,7 +517,7 @@ final class AudioFeed: @unchecked Sendable {
     }
 }
 
-func streamRobotMicrophone(api: ScoutAPI, feed: AudioFeed) async {
+func streamRobotMicrophone(api: ScoutDeckAPI, feed: AudioFeed) async {
     while !Task.isCancelled {
         do {
             var req = api.request("GET", "v1/microphone.pcm")
@@ -662,7 +665,7 @@ func quickCommand(_ text: String, robot: Robot) async -> String? {
 }
 
 @main
-struct ScoutVoice {
+struct ScoutDeckVoice {
     static func main() async {
         let args = CommandLine.arguments
         func value(_ flag: String) -> String? { args.firstIndex(of: flag).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
@@ -679,7 +682,7 @@ struct ScoutVoice {
         guard case .available = model.availability else {
             throw APIError(status: 0, message: "Apple's on-device model is unavailable (\(model.availability)). Turn on Apple Intelligence in System Settings.")
         }
-        let api = try ScoutAPI()
+        let api = try ScoutDeckAPI()
         let robot = Robot(api: api, dryRun: dryRun)
         let tools: [any Tool] = [MoveTool(robot: robot), TurnTool(robot: robot), StopTool(robot: robot),
                                  DockTool(robot: robot), LightTool(robot: robot), StatusTool(robot: robot),

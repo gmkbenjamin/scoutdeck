@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 const DeadZone = .15

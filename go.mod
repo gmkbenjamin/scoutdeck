@@ -1,4 +1,4 @@
-module github.com/shell-company/scout
+module github.com/gmkbenjamin/scoutdeck
 
 go 1.25.0
 

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/shell-company/scout/internal/agent"
+	"github.com/gmkbenjamin/scoutdeck/internal/agent"
 )
 
 func TestPairingSetsSessionOnlyForTheRightToken(t *testing.T) {

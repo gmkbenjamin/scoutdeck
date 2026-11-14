@@ -1,12 +1,12 @@
 # Agent control API
 
-The Scout app serves this API, and the web app, on `127.0.0.1:8765` by default
+The ScoutDeck app serves this API, and the web app, on `127.0.0.1:8765` by default
 (`-api <loopback:port>` to change it, `-api off` to disable):
 
 ```sh
-python3 scripts/build.py                      # builds dist/scout, dist/scoutctl (+ scout-voice on Apple Silicon)
-./dist/scout -host 192.168.1.97               # window + API + web app
-./dist/scout -host 192.168.1.97 -headless     # API only
+python3 scripts/build.py                      # builds dist/scoutdeck, dist/scoutdeckctl (+ scoutdeck-voice on Apple Silicon)
+./dist/scoutdeck -host 192.168.1.97           # window + API + web app
+./dist/scoutdeck -host 192.168.1.97 -headless # API only
 ```
 
 `-ssh` (default `root@<host>`) enables speaker playback, live power checks and
@@ -16,9 +16,10 @@ recordings. JPEG, MJPEG and AAC streaming do not need it.
 
 The listener accepts only literal loopback addresses. Use `tailscale serve` (see
 the README) or SSH port forwarding for other devices. Agents authenticate with
-`Authorization: Bearer <token>`. The token is `$SCOUT_API_TOKEN` if set, otherwise
-a random token the app saves in `~/Library/Application Support/Scout/api-token`
-(mode 0600); `scoutctl` reads that file automatically. Do not put it in URLs.
+`Authorization: Bearer <token>`. The token is `$SCOUTDECK_API_TOKEN` (or legacy
+`$SCOUT_API_TOKEN`) if set, otherwise a random token the app saves in
+`~/Library/Application Support/ScoutDeck/api-token` (mode 0600; existing `Scout/`
+configs migrate on launch); `scoutdeckctl` reads that file automatically. Do not put it in URLs.
 Bearer requests with a browser `Origin` are rejected and the API does not enable
 CORS. The paired web app instead uses an HttpOnly, SameSite=Strict session cookie
 derived from the token; it can only change state from its own origin and cannot
@@ -57,7 +58,7 @@ return 503; `/v1/status` reports `robot.connected`.
 | GET | `/v1/events?limit=50&since=RFC3339` | Event timeline, newest first: motion, person, cat, dog, patrol, dock, info |
 | GET | `/v1/events/{id}.jpg` | Snapshot stored with an event |
 | DELETE | `/v1/events` | Delete every event and snapshot |
-| POST | `/v1/record/start`, `/v1/record/stop` | Record camera and microphone to an MP4 on the Mac (`~/Movies/Scout`, at most 30 minutes) |
+| POST | `/v1/record/start`, `/v1/record/stop` | Record camera and microphone to an MP4 on the Mac (`~/Movies/ScoutDeck`, at most 30 minutes) |
 | GET | `/v1/robot-recordings` | Clips and snapshots stored on the robot by its firmware |
 | GET/DELETE | `/v1/robot-recordings/{id}` | Download (over SSH) or delete one |
 | GET/POST | `/v1/camera` | Video settings; POST `{"name":"image_night_mode","value":1}` (night vision 0 off, 1 on, 2 auto; brightness, WDR, compression) |
@@ -98,16 +99,16 @@ robot-side behavior was not changed.
 Examples:
 
 ```sh
-curl -fsS -H "Authorization: Bearer $SCOUT_API_TOKEN" \
+curl -fsS -H "Authorization: Bearer $SCOUTDECK_API_TOKEN" \
   http://127.0.0.1:8765/v1/status
 
-curl -fsS -H "Authorization: Bearer $SCOUT_API_TOKEN" \
+curl -fsS -H "Authorization: Bearer $SCOUTDECK_API_TOKEN" \
   http://127.0.0.1:8765/v1/screenshot.jpg -o scout.jpg
 
-curl -fsS -H "Authorization: Bearer $SCOUT_API_TOKEN" \
+curl -fsS -H "Authorization: Bearer $SCOUTDECK_API_TOKEN" \
   'http://127.0.0.1:8765/v1/microphone.wav?seconds=3' -o microphone.wav
 
-curl -fsS -X POST -H "Authorization: Bearer $SCOUT_API_TOKEN" \
+curl -fsS -X POST -H "Authorization: Bearer $SCOUTDECK_API_TOKEN" \
   http://127.0.0.1:8765/v1/stop
 ```
 
@@ -117,36 +118,36 @@ Use the documented operations so agents cannot bypass movement expiry.
 ## Agent CLI
 
 ```sh
-go build -trimpath -o dist/scoutctl ./cmd/scoutctl
-export SCOUT_API_URL=http://127.0.0.1:8765
-# Uses the same SCOUT_API_TOKEN as the running app.
-./dist/scoutctl status
-./dist/scoutctl screenshot -out scout.jpg
-./dist/scoutctl drive -y 0.05 -ttl 300
-./dist/scoutctl stop
-./dist/scoutctl dock -timeout 300
-./dist/scoutctl power
-./dist/scoutctl record -seconds 3 -out mic.wav
-./dist/scoutctl speaker -in speech.wav
-./dist/scoutctl video -out -
-./dist/scoutctl move -m 0.5          # measured: odometry closed loop
-./dist/scoutctl turn -deg -90        # measured: gyro closed loop (right)
-./dist/scoutctl say -text "Hello"
-./dist/scoutctl guard -arm on
-./dist/scoutctl events -limit 10
-./dist/scoutctl routes
-./dist/scoutctl patrol -name Downstairs
-./dist/scoutctl camera -name image_night_mode -value 2
-./dist/scoutctl health
+go build -trimpath -o dist/scoutdeckctl ./cmd/scoutdeckctl
+export SCOUTDECK_API_URL=http://127.0.0.1:8765
+# Uses the same SCOUTDECK_API_TOKEN as the running app.
+./dist/scoutdeckctl status
+./dist/scoutdeckctl screenshot -out scout.jpg
+./dist/scoutdeckctl drive -y 0.05 -ttl 300
+./dist/scoutdeckctl stop
+./dist/scoutdeckctl dock -timeout 300
+./dist/scoutdeckctl power
+./dist/scoutdeckctl record -seconds 3 -out mic.wav
+./dist/scoutdeckctl speaker -in speech.wav
+./dist/scoutdeckctl video -out -
+./dist/scoutdeckctl move -m 0.5          # measured: odometry closed loop
+./dist/scoutdeckctl turn -deg -90        # measured: gyro closed loop (right)
+./dist/scoutdeckctl say -text "Hello"
+./dist/scoutdeckctl guard -arm on
+./dist/scoutdeckctl events -limit 10
+./dist/scoutdeckctl routes
+./dist/scoutdeckctl patrol -name Downstairs
+./dist/scoutdeckctl camera -name image_night_mode -value 2
+./dist/scoutdeckctl health
 ```
 
 ### MCP server
 
-`scoutctl mcp` serves the API as Model Context Protocol tools on stdio, so an
+`scoutdeckctl mcp` serves the API as Model Context Protocol tools on stdio, so an
 assistant can look, move, turn, speak, listen, dock, patrol and arm guard mode. Register this stdio command with your MCP client:
 
 ```sh
-/Applications/Scout.app/Contents/MacOS/scoutctl mcp
+/Applications/ScoutDeck.app/Contents/MacOS/scoutdeckctl mcp
 ```
 
 It uses the same token and limits as every other agent; a person at the Mac or a
@@ -226,16 +227,16 @@ to the robot. Other upstream goroslib integration tests require Docker/ROS.
 
 ROS requires the robot to connect back to this app on dynamically assigned TCP
 ports. Receiving camera frames does not prove the movement publisher is reachable.
-Allow incoming connections for the Scout executable in the macOS firewall; use
+Allow incoming connections for the ScoutDeck executable in the macOS firewall; use
 `-l YOUR_LAN_IP` only if automatic address selection chooses the wrong interface.
 
 Go's default ad-hoc signing identifier can be `a.out`, which macOS may match to
 an unrelated executable's firewall rule. `scripts/build.py` and `scripts/package.py`
-assign `com.scout.controller` automatically on macOS; after a raw `go build`,
+assign `com.scoutdeck.controller` automatically on macOS; after a raw `go build`,
 apply and reapply it manually before adding firewall permissions:
 
 ```sh
-codesign --force --sign - --identifier com.scout.controller dist/scout
+codesign --force --sign - --identifier com.scoutdeck.controller dist/scoutdeck
 ```
 
 Reapply that identity after rebuilding. Keep the firewall enabled and leave

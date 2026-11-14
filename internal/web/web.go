@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shell-company/scout/internal/agent"
+	"github.com/gmkbenjamin/scoutdeck/internal/agent"
 )
 
 //go:embed static

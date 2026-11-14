@@ -1,4 +1,4 @@
-# Scout
+# ScoutDeck
 
 A Go desktop and headless controller for **Moorebot Scout** with keyboard/Xbox
 controls, live HUD, patrol routes, guard mode, a responsive web/phone UI, an
@@ -20,24 +20,24 @@ MCP server.
 - **SSH keys** for `root@<host>` (optional; enables speaker playback, live
   battery/health reads, Wi-Fi management, robot clips and verified docking)
 - **macOS 26+ on Apple silicon** with Apple Intelligence enabled (optional, for
-  `scout-voice`)
+  `scoutdeck-voice`)
 
 ## Build & Run
 
 ```sh
-python3 scripts/build.py          # builds dist/scout, dist/scoutctl (+ scout-voice on Apple Silicon)
-./dist/scout                      # enter the robot IP in the window (saved for next time)
-./dist/scout -host 192.168.1.97   # or pass it once; run ./dist/scout -h for all flags
+python3 scripts/build.py            # builds dist/scoutdeck, dist/scoutdeckctl (+ scoutdeck-voice on Apple Silicon)
+./dist/scoutdeck                    # enter the robot IP in the window (saved for next time)
+./dist/scoutdeck -host 192.168.1.97 # or pass it once; run ./dist/scoutdeck -h for all flags
 ```
 
-Or use `make build`, `go build -trimpath -o dist/scout .`, or on Windows PowerShell:
+Or use `make build`, `go build -trimpath -o dist/scoutdeck .`, or on Windows PowerShell:
 
 ```powershell
 py scripts\build.py
-.\dist\scout.exe -host 192.168.1.97
+.\dist\scoutdeck.exe -host 192.168.1.97
 ```
 
-To build a release bundle (`dist/Scout.app` on macOS and `dist/scout-<os>-<arch>.zip`):
+To build a release bundle (`dist/ScoutDeck.app` on macOS and `dist/scoutdeck-<os>-<arch>.zip`):
 
 ```sh
 python3 scripts/package.py                         # host OS/arch (or make package)
@@ -63,16 +63,16 @@ building without the macOS 26 SDK.
 - **Guard mode & patrols:** Motion and on-robot people/pet alerts with
   snapshots (and optional macOS notifications), plus recorded/scheduled patrol
   routes that return to dock.
-- **Voice assistant (`-voice` or `V`):** `scout-voice` runs on-device speech
+- **Voice assistant (`-voice` or `V`):** `scoutdeck-voice` runs on-device speech
   recognition and Apple foundation model tool calling on Apple silicon macOS
   26+, speaking replies via the robot speaker. Supports `--source mac` and
-  `--text "…" --dry-run`.
+  `--text "…" --dry-run` (wake word: `"Scout, …"`).
 - **Phone & browser UI (`127.0.0.1:8765`):** Responsive HUD with touch joystick
   and talk/listen controls. Pair from `M` → **Phone & tablet** using Tailscale
   (`tailscale serve`, QR scan) or LAN HTTP (`L` or `-lan`) and the 6-digit
   one-time code.
-- **CLI, HTTP API & MCP:** Drive and automate Scout with `scoutctl` or expose
-  tools to assistants via `scoutctl mcp` — see [AGENT_API.md](AGENT_API.md).
+- **CLI, HTTP API & MCP:** Drive and automate Scout with `scoutdeckctl` or
+  expose tools to assistants via `scoutdeckctl mcp` — see [AGENT_API.md](AGENT_API.md).
 
 ## Controls
 
@@ -83,10 +83,10 @@ building without the macOS 26 SDK.
 | Stop all / cancel docking | `X` | `B` or `LB` + `RB` |
 | Speed `-` / `+` (0.1–0.3 m/s) | `O` / `P` | `LB` / `RB` |
 | Dock | `H` | `Y` |
-| Screenshot (`~/Pictures/Scout` in `Scout.app`) | `Space` | `A` |
+| Screenshot (`~/Pictures/ScoutDeck` in `ScoutDeck.app`) | `Space` | `A` |
 | Night vision brightness `-` / `+` | `9` / `0` | D-pad down / up |
 | Auto light | Agent API | `X` |
-| Record MP4 (`~/Movies/Scout` in `Scout.app`) | `R` | — |
+| Record MP4 (`~/Movies/ScoutDeck` in `ScoutDeck.app`) | `R` | — |
 | Guard mode on/off | `G` | — |
 | Voice assistant on/off | `V` | — |
 | Clean HUD / fullscreen / controls | `Tab` / `F` / `?` | — |
@@ -103,7 +103,7 @@ force a mode).
   `-no-ssh`; press `Tab` on the connect screen to scan the LAN). First connect
   adds the host key to `known_hosts` and refuses changed keys.
 - **macOS permissions:** Allow **Local Network** access and incoming ROS
-  connections in the macOS firewall. `Scout.app` is ad-hoc signed, not notarized.
+  connections in the macOS firewall. `ScoutDeck.app` is ad-hoc signed, not notarized.
 - **Windows firewall:** Allow incoming ROS callbacks on your trusted private
   network (`-ssh` uses Windows OpenSSH Client).
 - **Headless / API-only:** Run `-headless` (requires `-api`, default
@@ -122,9 +122,10 @@ Offline tests use synthetic inputs and loopback mocks (see
 ## Local Data
 
 Settings, saved host/routes/events, and the `0600` `api-token` live in your OS
-config directory (`~/Library/Application Support/Scout/` on macOS). Override the
-token with `SCOUT_API_TOKEN`. Captures, logs, keys, local binaries and `.env`
-files are gitignored.
+config directory (`~/Library/Application Support/ScoutDeck/` on macOS; existing
+`Scout/` configs migrate automatically on first run). Override the token with
+`SCOUTDECK_API_TOKEN` (legacy `SCOUT_API_TOKEN` is also supported). Captures,
+logs, keys, local binaries and `.env` files are gitignored.
 
 ## Provenance
 

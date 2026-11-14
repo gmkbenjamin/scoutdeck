@@ -65,25 +65,25 @@ func TestMCPProtocolAndAllTools(t *testing.T) {
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
 		`{"jsonrpc":"2.0","id":2,"method":"ping"}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/list"}`,
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"scout_status"}}`,
-		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"scout_look"}}`,
-		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"scout_move","arguments":{"distance_m":1.2,"speed":0.2}}}`,
-		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"scout_turn","arguments":{"degrees":90}}}`,
-		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"scout_stop"}}`,
-		`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"scout_dock"}}`,
-		`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"scout_say","arguments":{"text":"hello"}}}`,
-		`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"scout_listen","arguments":{"seconds":2}}}`,
-		`{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"scout_light","arguments":{"setting":"bright"}}}`,
-		`{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"scout_light","arguments":{"setting":"bogus"}}}`,
-		`{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"scout_events","arguments":{"limit":5}}}`,
-		`{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"scout_guard","arguments":{"armed":true,"objects":false}}}`,
-		`{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"scout_guard","arguments":{"objects":true}}}`,
-		`{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"scout_routes"}}`,
-		`{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"scout_patrol","arguments":{"route":"kitchen run"}}}`,
-		`{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"scout_patrol","arguments":{}}}`,
-		`{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"scout_record","arguments":{"action":"start"}}}`,
-		`{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"scout_record","arguments":{"action":"pause"}}}`,
-		`{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"scout_health"}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"scoutdeck_status"}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"scoutdeck_look"}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"scoutdeck_move","arguments":{"distance_m":1.2,"speed":0.2}}}`,
+		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"scoutdeck_turn","arguments":{"degrees":90}}}`,
+		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"scoutdeck_stop"}}`,
+		`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"scoutdeck_dock"}}`,
+		`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"scoutdeck_say","arguments":{"text":"hello"}}}`,
+		`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"scoutdeck_listen","arguments":{"seconds":2}}}`,
+		`{"jsonrpc":"2.0","id":12,"method":"tools/call","params":{"name":"scoutdeck_light","arguments":{"setting":"bright"}}}`,
+		`{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"scoutdeck_light","arguments":{"setting":"bogus"}}}`,
+		`{"jsonrpc":"2.0","id":14,"method":"tools/call","params":{"name":"scoutdeck_events","arguments":{"limit":5}}}`,
+		`{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"scoutdeck_guard","arguments":{"armed":true,"objects":false}}}`,
+		`{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"scoutdeck_guard","arguments":{"objects":true}}}`,
+		`{"jsonrpc":"2.0","id":17,"method":"tools/call","params":{"name":"scoutdeck_routes"}}`,
+		`{"jsonrpc":"2.0","id":18,"method":"tools/call","params":{"name":"scoutdeck_patrol","arguments":{"route":"kitchen run"}}}`,
+		`{"jsonrpc":"2.0","id":19,"method":"tools/call","params":{"name":"scoutdeck_patrol","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"scoutdeck_record","arguments":{"action":"start"}}}`,
+		`{"jsonrpc":"2.0","id":21,"method":"tools/call","params":{"name":"scoutdeck_record","arguments":{"action":"pause"}}}`,
+		`{"jsonrpc":"2.0","id":22,"method":"tools/call","params":{"name":"scoutdeck_health"}}`,
 		`{"jsonrpc":"2.0","id":23,"method":"tools/call","params":"not-an-object"}`,
 		`{"jsonrpc":"2.0","id":24,"method":"tools/call","params":{"name":"nope"}}`,
 		`{"jsonrpc":"2.0","id":25,"method":"bogus"}`,
@@ -127,9 +127,9 @@ func TestMCPProtocolAndAllTools(t *testing.T) {
 		seenTools[raw.(map[string]any)["name"].(string)] = true
 	}
 	for _, want := range []string{
-		"scout_status", "scout_look", "scout_move", "scout_turn", "scout_stop",
-		"scout_dock", "scout_say", "scout_listen", "scout_light", "scout_events",
-		"scout_guard", "scout_routes", "scout_patrol", "scout_record", "scout_health",
+		"scoutdeck_status", "scoutdeck_look", "scoutdeck_move", "scoutdeck_turn", "scoutdeck_stop",
+		"scoutdeck_dock", "scoutdeck_say", "scoutdeck_listen", "scoutdeck_light", "scoutdeck_events",
+		"scoutdeck_guard", "scoutdeck_routes", "scoutdeck_patrol", "scoutdeck_record", "scoutdeck_health",
 	} {
 		if !seenTools[want] {
 			t.Fatalf("missing tool %s in tools/list", want)
@@ -160,25 +160,25 @@ func TestMCPProtocolAndAllTools(t *testing.T) {
 		}
 	}
 
-	assertToolOK(4, "text")   // scout_status
-	assertToolOK(5, "image")  // scout_look
-	assertToolOK(6, "text")   // scout_move
-	assertToolOK(7, "text")   // scout_turn
-	assertToolOK(8, "text")   // scout_stop
-	assertToolOK(9, "text")   // scout_dock
-	assertToolErr(10, "409")  // scout_say HTTP error propagation
-	assertToolOK(11, "audio") // scout_listen
-	assertToolOK(12, "text")  // scout_light valid
+	assertToolOK(4, "text")   // scoutdeck_status
+	assertToolOK(5, "image")  // scoutdeck_look
+	assertToolOK(6, "text")   // scoutdeck_move
+	assertToolOK(7, "text")   // scoutdeck_turn
+	assertToolOK(8, "text")   // scoutdeck_stop
+	assertToolOK(9, "text")   // scoutdeck_dock
+	assertToolErr(10, "409")  // scoutdeck_say HTTP error propagation
+	assertToolOK(11, "audio") // scoutdeck_listen
+	assertToolOK(12, "text")  // scoutdeck_light valid
 	assertToolErr(13, "setting")
-	assertToolOK(14, "text") // scout_events
-	assertToolOK(15, "text") // scout_guard valid
+	assertToolOK(14, "text") // scoutdeck_events
+	assertToolOK(15, "text") // scoutdeck_guard valid
 	assertToolErr(16, "armed")
-	assertToolOK(17, "text") // scout_routes
-	assertToolOK(18, "text") // scout_patrol valid
+	assertToolOK(17, "text") // scoutdeck_routes
+	assertToolOK(18, "text") // scoutdeck_patrol valid
 	assertToolErr(19, "route")
-	assertToolOK(20, "text") // scout_record valid
+	assertToolOK(20, "text") // scoutdeck_record valid
 	assertToolErr(21, "action")
-	assertToolOK(22, "text") // scout_health
+	assertToolOK(22, "text") // scoutdeck_health
 
 	// Invalid params (-32602), unknown tool (-32602), unknown method (-32601)
 	if code := msgs[23]["error"].(map[string]any)["code"]; code != float64(-32602) {

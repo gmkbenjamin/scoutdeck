@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 // A Route is a recorded drive that can be replayed as a patrol. Recording

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/shell-company/scout/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
 )
 
 // Point is a position in metres in the tracker's world frame. The frame's

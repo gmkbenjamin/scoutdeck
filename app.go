@@ -19,15 +19,15 @@ import (
 	"github.com/aler9/goroslib/pkg/msgs/geometry_msgs"
 	"github.com/aler9/goroslib/pkg/msgs/std_msgs"
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/shell-company/scout/internal/agent"
-	"github.com/shell-company/scout/internal/control"
-	"github.com/shell-company/scout/internal/docking"
-	"github.com/shell-company/scout/internal/events"
-	"github.com/shell-company/scout/internal/motion"
-	"github.com/shell-company/scout/internal/web"
+	"github.com/gmkbenjamin/scoutdeck/internal/agent"
+	"github.com/gmkbenjamin/scoutdeck/internal/control"
+	"github.com/gmkbenjamin/scoutdeck/internal/docking"
+	"github.com/gmkbenjamin/scoutdeck/internal/events"
+	"github.com/gmkbenjamin/scoutdeck/internal/motion"
+	"github.com/gmkbenjamin/scoutdeck/internal/web"
 )
 
-var flagAPI = flag.String("api", "127.0.0.1:8765", "loopback address for the agent API and web app, or \"off\" (token: SCOUT_API_TOKEN or the saved api-token)")
+var flagAPI = flag.String("api", "127.0.0.1:8765", "loopback address for the agent API and web app, or \"off\" (token: SCOUTDECK_API_TOKEN or the saved api-token)")
 var flagInputTest = flag.Bool("input-test", false, "test keyboard/gamepad input in a window without connecting to a robot")
 var flagHeadless = flag.Bool("headless", false, "run without a window; requires -api")
 var flagSSH = flag.String("ssh", "", "SSH destination; default root@<host> using your SSH keys/agent (-no-ssh disables)")
@@ -341,7 +341,7 @@ func (a *application) connect(t target) error {
 	if err := forceROSHostnameToMasterIP(t.ROS, *flagVerbose); err != nil {
 		return err
 	}
-	node, err := goroslib.NewNode(goroslib.NodeConf{Name: fmt.Sprintf("scout_access_%d", os.Getpid()), MasterAddress: t.ROS, Host: resolveNodeHost(t.ROS, *flaglocalhost)})
+	node, err := goroslib.NewNode(goroslib.NodeConf{Name: fmt.Sprintf("scoutdeck_%d", os.Getpid()), MasterAddress: t.ROS, Host: resolveNodeHost(t.ROS, *flaglocalhost)})
 	if err != nil {
 		return fmt.Errorf("cannot reach the robot's ROS master at %s: %w", t.ROS, err)
 	}
@@ -430,7 +430,7 @@ func (a *application) connect(t target) error {
 		}
 	}()
 	go a.watchMaster(connCtx)
-	log.Printf("Scout connected to ROS master %s; video=%s", t.ROS, *flagStream)
+	log.Printf("ScoutDeck connected to ROS master %s; video=%s", t.ROS, *flagStream)
 	if *flagVoice && a.voice.State() == "" {
 		defer a.toggleVoice()
 	}
@@ -726,7 +726,7 @@ func (a *application) status() any {
 	phase, connErr, t := a.connState()
 	robot := map[string]any{"connected": a.ready.Load(), "host": t.Host, "ssh": t.SSH != ""}
 	if !a.ready.Load() {
-		robot["message"] = "The Scout app on the Mac isn't connected to the robot."
+		robot["message"] = "The ScoutDeck app on the Mac isn't connected to the robot."
 		if phase == connConnecting {
 			robot["message"] = "The Mac is connecting to the robot…"
 		} else if connErr != "" {
@@ -879,9 +879,9 @@ func runWindow(a *application, inputTest bool) error {
 		}
 	}
 	ebiten.SetWindowSize(w, h)
-	ebiten.SetWindowTitle("Scout")
+	ebiten.SetWindowTitle("ScoutDeck")
 	if inputTest {
-		ebiten.SetWindowTitle("Scout - Input Test (no robot)")
+		ebiten.SetWindowTitle("ScoutDeck - Input Test (no robot)")
 	}
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 	// Keep Update running to immediately revoke manual input when focus is lost.

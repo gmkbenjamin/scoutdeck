@@ -1,11 +1,11 @@
 package main
 
-// `scoutctl mcp` is a Model Context Protocol server on stdio, so assistants
+// `scoutdeckctl mcp` is a Model Context Protocol server on stdio, so assistants
 // can drive, look, listen and speak through the same bounded
 // agent API (speed limits, short leases, manual priority, obstacle guard).
 // Register this stdio command with your MCP client:
 //
-//	/path/to/scoutctl mcp
+//	/path/to/scoutdeckctl mcp
 
 import (
 	"bufio"
@@ -81,12 +81,12 @@ func pick(args map[string]any, keys ...string) map[string]any {
 
 func mcpTools() []mcpTool {
 	return []mcpTool{
-		{Name: "scout_status", Description: "Robot status: connection, battery, what is controlling it, obstacle distance ahead, heading and position since the dock, docking, guard mode, recording.",
+		{Name: "scoutdeck_status", Description: "Robot status: connection, battery, what is controlling it, obstacle distance ahead, heading and position since the dock, docking, guard mode, recording.",
 			InputSchema: obj(map[string]any{}),
 			call: func(ctx context.Context, c client, _ map[string]any) ([]map[string]any, error) {
 				return jsonCall(ctx, c, "GET", "/v1/status", nil, 10*time.Second)
 			}},
-		{Name: "scout_look", Description: "Take a photo with the robot's forward camera and return it as an image.",
+		{Name: "scoutdeck_look", Description: "Take a photo with the robot's forward camera and return it as an image.",
 			InputSchema: obj(map[string]any{}),
 			call: func(ctx context.Context, c client, _ map[string]any) ([]map[string]any, error) {
 				call, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -102,32 +102,32 @@ func mcpTools() []mcpTool {
 				}
 				return []map[string]any{{"type": "image", "data": base64.StdEncoding.EncodeToString(img), "mimeType": "image/jpeg"}}, nil
 			}},
-		{Name: "scout_move", Description: "Drive a measured distance and stop (closed loop on wheel odometry). Give distance_m (forward positive, backward negative) or strafe_m (left positive). Forward moves stop early for obstacles. Max 3 m.",
+		{Name: "scoutdeck_move", Description: "Drive a measured distance and stop (closed loop on wheel odometry). Give distance_m (forward positive, backward negative) or strafe_m (left positive). Forward moves stop early for obstacles. Max 3 m.",
 			InputSchema: obj(map[string]any{"distance_m": num("metres forward, negative backward"), "strafe_m": num("metres sideways, positive left"), "speed": num("m/s, optional (default 0.15)")}),
 			call: func(ctx context.Context, c client, a map[string]any) ([]map[string]any, error) {
 				return jsonCall(ctx, c, "POST", "/v1/move", pick(a, "distance_m", "strafe_m", "speed"), 165*time.Second)
 			}},
-		{Name: "scout_turn", Description: "Turn in place by an angle using the gyro. Positive degrees turn left (counter-clockwise), negative right. Max 720.",
+		{Name: "scoutdeck_turn", Description: "Turn in place by an angle using the gyro. Positive degrees turn left (counter-clockwise), negative right. Max 720.",
 			InputSchema: obj(map[string]any{"degrees": num("degrees, positive left"), "rate": num("rad/s, optional (default 1.0)")}, "degrees"),
 			call: func(ctx context.Context, c client, a map[string]any) ([]map[string]any, error) {
 				return jsonCall(ctx, c, "POST", "/v1/turn", pick(a, "degrees", "rate"), 165*time.Second)
 			}},
-		{Name: "scout_stop", Description: "Stop all movement, cancel any move, patrol or docking.",
+		{Name: "scoutdeck_stop", Description: "Stop all movement, cancel any move, patrol or docking.",
 			InputSchema: obj(map[string]any{}),
 			call: func(ctx context.Context, c client, _ map[string]any) ([]map[string]any, error) {
 				return jsonCall(ctx, c, "POST", "/v1/stop", nil, 15*time.Second)
 			}},
-		{Name: "scout_dock", Description: "Return to the charging dock (the robot searches for the dock's QR code and reverses onto it). Returns immediately; poll scout_status for progress.",
+		{Name: "scoutdeck_dock", Description: "Return to the charging dock (the robot searches for the dock's QR code and reverses onto it). Returns immediately; poll scoutdeck_status for progress.",
 			InputSchema: obj(map[string]any{}),
 			call: func(ctx context.Context, c client, _ map[string]any) ([]map[string]any, error) {
 				return jsonCall(ctx, c, "POST", "/v1/dock", map[string]int{"timeout_seconds": 300}, 15*time.Second)
 			}},
-		{Name: "scout_say", Description: "Speak text out loud through the robot's speaker.",
+		{Name: "scoutdeck_say", Description: "Speak text out loud through the robot's speaker.",
 			InputSchema: obj(map[string]any{"text": str("what to say, up to 500 characters")}, "text"),
 			call: func(ctx context.Context, c client, a map[string]any) ([]map[string]any, error) {
 				return jsonCall(ctx, c, "POST", "/v1/say", pick(a, "text"), 60*time.Second)
 			}},
-		{Name: "scout_listen", Description: "Record the robot's microphone for 1-10 seconds and return the audio (WAV).",
+		{Name: "scoutdeck_listen", Description: "Record the robot's microphone for 1-10 seconds and return the audio (WAV).",
 			InputSchema: obj(map[string]any{"seconds": num("1..10, default 3")}),
 			call: func(ctx context.Context, c client, a map[string]any) ([]map[string]any, error) {
 				secs := 3
@@ -147,7 +147,7 @@ func mcpTools() []mcpTool {
 				}
 				return []map[string]any{{"type": "audio", "data": base64.StdEncoding.EncodeToString(wav), "mimeType": "audio/wav"}}, nil
 			}},
-		{Name: "scout_light", Description: "Set the robot's light: dim, bright, max or auto.",
+		{Name: "scoutdeck_light", Description: "Set the robot's light: dim, bright, max or auto.",
 			InputSchema: obj(map[string]any{"setting": map[string]any{"type": "string", "enum": []string{"dim", "bright", "max", "auto"}}}, "setting"),
 			call: func(ctx context.Context, c client, a map[string]any) ([]map[string]any, error) {
 				setting, _ := a["setting"].(string)
@@ -157,7 +157,7 @@ func mcpTools() []mcpTool {
 				}
 				return jsonCall(ctx, c, "POST", "/v1/light", map[string]int{"command": cmd}, 10*time.Second)
 			}},
-		{Name: "scout_events", Description: "Recent events: motion, people and pets seen while guard mode was armed, patrols and docking.",
+		{Name: "scoutdeck_events", Description: "Recent events: motion, people and pets seen while guard mode was armed, patrols and docking.",
 			InputSchema: obj(map[string]any{"limit": num("1..300, default 20")}),
 			call: func(ctx context.Context, c client, a map[string]any) ([]map[string]any, error) {
 				limit := 20
@@ -166,7 +166,7 @@ func mcpTools() []mcpTool {
 				}
 				return jsonCall(ctx, c, "GET", fmt.Sprintf("/v1/events?limit=%d", limit), nil, 10*time.Second)
 			}},
-		{Name: "scout_guard", Description: "Arm or disarm guard mode (alerts for motion, and people and pets if objects is true).",
+		{Name: "scoutdeck_guard", Description: "Arm or disarm guard mode (alerts for motion, and people and pets if objects is true).",
 			InputSchema: obj(map[string]any{"armed": boolean("arm (true) or disarm (false)"), "objects": boolean("also detect people and pets with the robot's model"), "notify": boolean("macOS notifications")}, "armed"),
 			call: func(ctx context.Context, c client, a map[string]any) ([]map[string]any, error) {
 				if _, ok := a["armed"].(bool); !ok {
@@ -174,13 +174,13 @@ func mcpTools() []mcpTool {
 				}
 				return jsonCall(ctx, c, "POST", "/v1/guard", pick(a, "armed", "objects", "notify"), 10*time.Second)
 			}},
-		{Name: "scout_routes", Description: "List saved patrol routes.",
+		{Name: "scoutdeck_routes", Description: "List saved patrol routes.",
 			InputSchema: obj(map[string]any{}),
 			call: func(ctx context.Context, c client, _ map[string]any) ([]map[string]any, error) {
 				return jsonCall(ctx, c, "GET", "/v1/routes", nil, 10*time.Second)
 			}},
-		{Name: "scout_patrol", Description: "Start a saved patrol route (it runs in the background, then docks if the route says so).",
-			InputSchema: obj(map[string]any{"route": str("route name from scout_routes")}, "route"),
+		{Name: "scoutdeck_patrol", Description: "Start a saved patrol route (it runs in the background, then docks if the route says so).",
+			InputSchema: obj(map[string]any{"route": str("route name from scoutdeck_routes")}, "route"),
 			call: func(ctx context.Context, c client, a map[string]any) ([]map[string]any, error) {
 				route, _ := a["route"].(string)
 				if route == "" {
@@ -188,7 +188,7 @@ func mcpTools() []mcpTool {
 				}
 				return jsonCall(ctx, c, "POST", "/v1/routes/"+url.PathEscape(route)+"/run", nil, 15*time.Second)
 			}},
-		{Name: "scout_record", Description: "Start or stop recording video and sound to the Mac (Movies/Scout).",
+		{Name: "scoutdeck_record", Description: "Start or stop recording video and sound to the Mac (Movies/ScoutDeck).",
 			InputSchema: obj(map[string]any{"action": map[string]any{"type": "string", "enum": []string{"start", "stop"}}}, "action"),
 			call: func(ctx context.Context, c client, a map[string]any) ([]map[string]any, error) {
 				action := fmt.Sprint(a["action"])
@@ -197,7 +197,7 @@ func mcpTools() []mcpTool {
 				}
 				return jsonCall(ctx, c, "POST", "/v1/record/"+action, nil, 20*time.Second)
 			}},
-		{Name: "scout_health", Description: "Robot vital signs: temperature, Wi-Fi signal, battery voltage and 24-hour history, storage, memory, firmware.",
+		{Name: "scoutdeck_health", Description: "Robot vital signs: temperature, Wi-Fi signal, battery voltage and 24-hour history, storage, memory, firmware.",
 			InputSchema: obj(map[string]any{}),
 			call: func(ctx context.Context, c client, _ map[string]any) ([]map[string]any, error) {
 				return jsonCall(ctx, c, "GET", "/v1/health", nil, 20*time.Second)
@@ -257,9 +257,9 @@ func serveMCP(ctx context.Context, c client, in io.Reader, out io.Writer) error 
 			err = reply(req.ID, map[string]any{
 				"protocolVersion": version,
 				"capabilities":    map[string]any{"tools": map[string]any{}},
-				"serverInfo":      map[string]any{"name": "scout", "version": "1.0"},
-				"instructions": "Tools for a Moorebot Scout robot through the Scout Mac app. Use scout_look to see, scout_move and scout_turn " +
-					"for measured movement, scout_stop to stop. A person at the Mac or phone always has priority over your commands.",
+				"serverInfo":      map[string]any{"name": "scoutdeck", "version": "1.0"},
+				"instructions": "Tools for a Moorebot Scout robot through the ScoutDeck Mac app. Use scoutdeck_look to see, scoutdeck_move and scoutdeck_turn " +
+					"for measured movement, scoutdeck_stop to stop. A person at the Mac or phone always has priority over your commands.",
 			}, nil)
 		case "ping":
 			err = reply(req.ID, map[string]any{}, nil)
